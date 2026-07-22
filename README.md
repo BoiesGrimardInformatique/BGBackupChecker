@@ -161,6 +161,25 @@ dans les deux tableaux, et un **filtre par client**. Les tâches attendues
 (`expected_jobs`) acceptent un champ `client:` explicite ; sinon le client est
 déduit du dernier courriel correspondant.
 
+### Un client par sous-dossier (`client_folders`)
+
+Si votre boîte range les alertes par client — arborescence
+`Sauvegardes/<Client>` — indiquez simplement le(s) dossier(s) **parent** :
+
+```yaml
+client_folders:
+  - "Boîte de réception/Sauvegardes"
+```
+
+L'outil explore alors chaque sous-dossier : le **client = nom du sous-dossier**
+(repris tel quel, sans regex à maintenir) et le **produit (Macrium/Retrospect)
+est détecté automatiquement** dans le contenu — un dossier peut donc mélanger
+les deux. **Ajouter un client revient à créer un sous-dossier** dans Outlook,
+sans toucher à `config.yaml`. L'assistant `setup` propose ce mode (« un dossier
+parent dont chaque sous-dossier est un client »). Se combine au besoin avec les
+dossiers par produit (`folders`) et avec la section `clients` (qui ne
+s'applique qu'aux courriels sans client déjà déterminé par le dossier).
+
 ## Détection des backups manquants
 
 La section `expected_jobs` déclare chaque tâche attendue avec sa fréquence

@@ -92,9 +92,39 @@ def _extract(patterns: list[str], *texts: str) -> str:
     return ""
 
 
+def _known_products(cfg: dict) -> list[str]:
+    names = list(DEFAULT_PATTERNS.keys())
+    for p in (cfg.get("parsers") or {}):
+        if p not in names:
+            names.append(p)
+    return names
+
+
+def _detect_product(cfg: dict, text: str) -> str:
+    """Devine le produit d'un courriel issu d'un dossier « auto » (produits
+    mixtes). D'abord le nom du produit dans le texte ; sinon le jeu de motifs
+    qui parvient à classer le courriel ; sinon « macrium » par défaut."""
+    low = text.lower()
+    if "retrospect" in low:
+        return "retrospect"
+    if "macrium" in low or "reflect" in low:
+        return "macrium"
+    for product in _known_products(cfg):
+        pats = _patterns_for(cfg, product)
+        for key, _ in _ORDER:
+            if _first_match(pats.get(key), text):
+                return product
+    return "macrium"
+
+
 def classify(cfg: dict, mail: RawMail) -> BackupEvent:
-    pats = _patterns_for(cfg, mail.product)
     text = f"{mail.subject}\n{mail.body}\n{mail.attachments_text}"
+    # Dossiers « auto » (mode client_folders) : le produit n'est pas connu du
+    # dossier, on le détecte au contenu. Sinon on garde celui du dossier.
+    product = mail.product
+    if product not in _known_products(cfg):
+        product = _detect_product(cfg, text)
+    pats = _patterns_for(cfg, product)
     status, matched = STATUS_UNKNOWN, ""
     for key, st in _ORDER:
         hit = _first_match(pats.get(key), text)
@@ -102,7 +132,7 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
             status, matched = st, hit
             break
     return BackupEvent(
-        product=mail.product,
+        product=product,
         status=status,
         subject=mail.subject,
         sender=mail.sender,
@@ -115,6 +145,7 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
         matched_pattern=matched,
         excerpt=re.sub(r"\s+", " ", mail.body).strip()[:500],
         attachments_note=mail.attachments_note,
+        client=mail.client,
     )
 
 
@@ -144,7 +175,10 @@ def analyze(cfg: dict, mails: list[RawMail]) -> list[BackupEvent]:
     events = [classify(cfg, m) for m in mails]
     matchers = _client_matchers(cfg)
     for ev in events:
-        ev.client = _assign_client(matchers, ev)
+        # Client déjà fixé par le dossier (mode auto) : on ne l'écrase pas ;
+        # sinon on tente l'association par motifs (section « clients »).
+        if not ev.client:
+            ev.client = _assign_client(matchers, ev)
     events.sort(key=lambda e: e.received, reverse=True)
     return events
 

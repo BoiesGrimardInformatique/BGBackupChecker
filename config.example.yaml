@@ -35,6 +35,16 @@ folders:
   # macrium:
   #   - "Boîte de réception/Backups/Macrium"
 
+# Mode « un client par sous-dossier » (idéal pour une arborescence
+# Sauvegardes/<Client>) : indiquez le(s) dossier(s) PARENT ci-dessous. Chaque
+# sous-dossier devient un client (son nom repris tel quel), et le produit
+# (Macrium/Retrospect) est détecté automatiquement dans le contenu — les
+# dossiers à produits mixtes ne posent donc pas problème. Ajouter un client =
+# créer un sous-dossier dans Outlook, sans modifier ce fichier. Se combine avec
+# « folders » au besoin. (Mode Outlook.)
+client_folders: []
+#  - "Boîte de réception/Sauvegardes"
+
 analysis:
   # Fenêtre d'analyse : nombre de jours de courriels relus à chaque exécution
   days_back: 14

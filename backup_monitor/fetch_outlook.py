@@ -158,18 +158,65 @@ def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
     ns = _namespace()
     mails: list[RawMail] = []
     errors: list[str] = []
+    # Dossiers par produit (macrium/retrospect explicites).
     for product, paths in cfg["folders"].items():
         for path in paths or []:
             try:
-                _fetch_folder(cfg, ns, store, product, path, since, tz, mails)
+                folder = _resolve_folder(ns, path, store)
+                _read_items(cfg, folder, path, product, "", since, tz, mails)
             except Exception as exc:
                 errors.append(f"[{product}] {path} : {exc}")
+    # Dossiers parents « auto » : chaque sous-dossier est un client.
+    for parent in cfg.get("client_folders") or []:
+        try:
+            _fetch_client_parent(cfg, ns, store, parent, since, tz, mails)
+        except Exception as exc:
+            errors.append(f"[auto] {parent} : {exc}")
     return mails, errors
 
 
-def _fetch_folder(cfg, ns, store, product, path, since, tz,
-                  mails: list[RawMail]) -> None:
-    folder = _resolve_folder(ns, path, store)
+def _fetch_client_parent(cfg, ns, store, parent_path, since, tz,
+                         mails: list[RawMail]) -> None:
+    """Explore un dossier parent : chaque sous-dossier DIRECT est un client
+    (son nom) ; le produit est détecté au contenu de chaque courriel."""
+    parent = _resolve_folder(ns, parent_path, store)
+    try:
+        subs = list(parent.Folders)
+    except Exception:
+        subs = []
+    if not subs:
+        raise RuntimeError("aucun sous-dossier (client) à explorer")
+    for sub in subs:
+        try:
+            client = sub.Name
+        except Exception:
+            continue
+        _walk_client(cfg, sub, f"{parent_path}/{client}", client,
+                     since, tz, mails)
+
+
+def _walk_client(cfg, folder, path, client, since, tz,
+                 mails: list[RawMail]) -> None:
+    """Lit un dossier client et ses éventuels sous-dossiers, tous rattachés au
+    même client (le sous-dossier de premier niveau)."""
+    _read_items(cfg, folder, path, "auto", client, since, tz, mails)
+    try:
+        subs = list(folder.Folders)
+    except Exception:
+        subs = []
+    for sub in subs:
+        try:
+            name = sub.Name
+        except Exception:
+            continue
+        _walk_client(cfg, sub, f"{path}/{name}", client, since, tz, mails)
+
+
+def _read_items(cfg, folder, path, product, client, since, tz,
+                mails: list[RawMail]) -> None:
+    """Lit les courriels récents d'UN dossier (déjà résolu) et les ajoute à
+    `mails`. `product` peut être « auto » (détecté ensuite au contenu) et
+    `client` le nom du dossier client (vide pour les dossiers par produit)."""
     items = folder.Items
     items.Sort("[ReceivedTime]", True)  # du plus récent au plus ancien
     for item in items:
@@ -198,6 +245,7 @@ def _fetch_folder(cfg, ns, store, product, path, since, tz,
                 body=item.Body or "",
                 folder=path,
                 product=product,
+                client=client,
                 attachments_text=att_text,
                 attachments_note=att_note,
             )
