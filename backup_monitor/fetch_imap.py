@@ -11,9 +11,8 @@ import email.policy
 import imaplib
 import re
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
-from . import RawMail
+from . import RawMail, load_timezone
 from . import attachments as att_mod
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -68,7 +67,7 @@ def folder_tree(cfg: dict, password: str) -> list[dict]:
 def fetch(cfg: dict, password: str) -> tuple[list[RawMail], list[str]]:
     """Retourne (courriels, erreurs). Un dossier illisible n'interrompt pas
     la collecte des autres : l'erreur est rapportée dans la seconde liste."""
-    tz = ZoneInfo(cfg["analysis"]["timezone"])
+    tz = load_timezone(cfg["analysis"]["timezone"])
     since = datetime.now(tz) - timedelta(days=int(cfg["analysis"]["days_back"]))
     since_imap = f"{since.day:02d}-{_MONTHS[since.month - 1]}-{since.year}"
     conn = _connect(cfg, password)
