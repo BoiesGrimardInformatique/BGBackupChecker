@@ -3,10 +3,10 @@ succès / inconnu, extraction machine + tâche, détection des backups manquants
 
 import re
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from . import (
     BackupEvent,
+    load_timezone,
     JobState,
     RawMail,
     STATUS_ERROR,
@@ -152,7 +152,7 @@ def analyze(cfg: dict, mails: list[RawMail]) -> list[BackupEvent]:
 def job_states(cfg: dict, events: list[BackupEvent]) -> list[JobState]:
     """Croise les événements avec les tâches attendues (expected_jobs) pour
     produire l'état courant de chaque tâche, y compris « manquant »."""
-    tz = ZoneInfo(cfg["analysis"]["timezone"])
+    tz = load_timezone(cfg["analysis"]["timezone"])
     now = datetime.now(tz)
     states: list[JobState] = []
     for job in cfg.get("expected_jobs") or []:

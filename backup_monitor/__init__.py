@@ -5,6 +5,7 @@ marqué comme lu."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 __version__ = "0.1.0"
 
@@ -22,6 +23,25 @@ STATUS_MISSING = "manquant"
 # (code 1) pour que les lanceurs (lancer.bat, install.bat) puissent enchaîner
 # automatiquement sur l'assistant « setup » plutôt que d'afficher une erreur.
 EXIT_NOT_CONFIGURED = 3
+
+
+def load_timezone(name: str) -> ZoneInfo:
+    """Charge un fuseau horaire IANA (ex. « America/Toronto »).
+
+    zoneinfo n'embarque pas la base des fuseaux horaires : sous Windows, où le
+    système n'en fournit aucune, le paquet « tzdata » (déclaré dans
+    requirements.txt) est requis. En son absence — ou si le nom est invalide —
+    on émet un message clair et actionnable plutôt qu'une trace d'exécution."""
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        raise SystemExit(
+            f"Fuseau horaire « {name} » introuvable : la base des fuseaux "
+            "horaires (paquet « tzdata ») est manquante, ou le nom est "
+            "invalide.\n"
+            "Corrigez en relançant install.bat, ou installez la base :\n"
+            "  venv\\Scripts\\python -m pip install tzdata"
+        )
 
 
 @dataclass

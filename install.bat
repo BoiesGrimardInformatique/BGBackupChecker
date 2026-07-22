@@ -35,7 +35,13 @@ if not exist config.yaml (
 
 echo.
 echo == Autotest de l'installation (sans toucher a Outlook ni au reseau) ==
+venv\Scripts\python -m backup_monitor selftest
+if not errorlevel 1 goto :autotest_ok
+echo.
+echo Autotest en echec : installation/reparation des dependances manquantes...
+venv\Scripts\python -m pip install --upgrade -r requirements.txt || goto :erreur
 venv\Scripts\python -m backup_monitor selftest || goto :erreur
+:autotest_ok
 
 echo.
 echo == Configuration : choix de la boite Outlook et des dossiers a surveiller ==

@@ -193,6 +193,7 @@ Sous Linux, `install.sh` et `systemd/installer-timer.sh` couvrent ce scénario.
 | Symptôme | Piste |
 |---|---|
 | `aucun dossier à surveiller n'est défini` | Configuration pas encore faite (pas une panne) : lancer `lancer.bat setup` — au double-clic, `lancer.bat` et `install.bat` enchaînent désormais l'assistant automatiquement |
+| `No time zone found` / `No module named 'tzdata'` | Base des fuseaux horaires absente (fréquent sous Windows) : relancer `install.bat` (il installe/répare `tzdata` automatiquement) ou `venv\Scripts\python -m pip install tzdata` |
 | `Dossier Outlook introuvable` | `python -m backup_monitor folders` pour les chemins exacts (attention aux noms français : « Boîte de réception ») |
 | La boîte n'est pas celle par défaut | Renseigner `outlook.store` avec le nom exact du magasin affiché dans Outlook |
 | Fenêtre de sécurité Outlook au lancement | Normal si un antivirus restreint l'accès programmatique ; l'outil ne fait que lire — autoriser l'accès |

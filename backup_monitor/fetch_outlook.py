@@ -12,11 +12,10 @@ Garanties lecture seule :
 """
 
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import win32com.client
 
-from . import RawMail
+from . import RawMail, load_timezone
 from . import attachments as att_mod
 
 OL_MAIL_ITEM = 43        # olMail
@@ -125,7 +124,7 @@ def _read_attachments(item, cfg: dict, sender: str) -> tuple[str, str]:
 def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
     """Retourne (courriels, erreurs). Un dossier illisible n'interrompt pas
     la collecte des autres : l'erreur est rapportée dans la seconde liste."""
-    tz = ZoneInfo(cfg["analysis"]["timezone"])
+    tz = load_timezone(cfg["analysis"]["timezone"])
     since = datetime.now(tz) - timedelta(days=int(cfg["analysis"]["days_back"]))
     store = (cfg.get("outlook") or {}).get("store", "")
     ns = _namespace()

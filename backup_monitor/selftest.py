@@ -5,15 +5,14 @@ pièces jointes, génération du tableau) SANS toucher à Outlook ni au réseau.
 import os
 import tempfile
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from . import (RawMail, STATUS_ERROR, STATUS_MISSING, STATUS_SUCCESS,
-               STATUS_UNKNOWN, STATUS_WARNING)
+               STATUS_UNKNOWN, STATUS_WARNING, load_timezone)
 from .attachments import extract, gate, looks_like_text, sender_allowed
 from .parsers import analyze, job_states
 from .report import render, write
 
-TZ = ZoneInfo("America/Toronto")
+TZ = load_timezone("America/Toronto")
 
 
 def _cfg(tmpdir: str) -> dict:

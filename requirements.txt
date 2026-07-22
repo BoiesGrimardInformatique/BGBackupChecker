@@ -1,4 +1,8 @@
 PyYAML>=6.0
 pywin32>=306; sys_platform == "win32"
 pypdf>=4.0
+# Base de données des fuseaux horaires IANA pour zoneinfo. Indispensable sous
+# Windows (aucune base fournie par le systeme) ; sans elle, ZoneInfo echoue
+# avec « No time zone found ». Inoffensive et utile comme repli ailleurs.
+tzdata>=2024.1
 

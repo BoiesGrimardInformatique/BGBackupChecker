@@ -8,10 +8,10 @@ import json
 import os
 import tempfile
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from . import (
     BackupEvent,
+    load_timezone,
     JobState,
     STATUS_ERROR,
     STATUS_MISSING,
@@ -508,7 +508,7 @@ def _filters(clients: list[str]) -> str:
 
 def render(cfg: dict, events: list[BackupEvent], states: list[JobState],
            fetch_errors: list[str] | None = None) -> str:
-    tz = ZoneInfo(cfg["analysis"]["timezone"])
+    tz = load_timezone(cfg["analysis"]["timezone"])
     now = datetime.now(tz)
     refresh = int(cfg["report"]["refresh_seconds"])
     days = cfg["analysis"]["days_back"]
