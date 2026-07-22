@@ -6,6 +6,8 @@ import sys
 
 import yaml
 
+from . import EXIT_NOT_CONFIGURED
+
 DEFAULTS = {
     "exchange": {
         "method": "outlook",
@@ -48,11 +50,13 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 def load(path: str, require_folders: bool = True) -> dict:
     if not os.path.exists(path):
-        sys.exit(
+        print(
             f"Configuration introuvable : {path}\n"
             "Lancez « python -m backup_monitor setup » pour la créer en "
-            "choisissant la boîte et les dossiers à surveiller."
+            "choisissant la boîte et les dossiers à surveiller.",
+            file=sys.stderr,
         )
+        sys.exit(EXIT_NOT_CONFIGURED)
     if os.name == "posix":  # sous Windows/FAT32 le mode est artificiel
         mode = os.stat(path).st_mode & 0o777
         if mode & 0o077:
@@ -73,11 +77,13 @@ def load(path: str, require_folders: bool = True) -> dict:
         sys.exit("config.yaml : exchange.email est requis pour ews/imap.")
     if require_folders and not any(
             cfg["folders"].get(p) for p in ("macrium", "retrospect")):
-        sys.exit(
+        print(
             "config.yaml : aucun dossier à surveiller n'est défini.\n"
             "Lancez « python -m backup_monitor setup » pour scanner la boîte "
-            "et choisir les dossiers."
+            "et choisir les dossiers.",
+            file=sys.stderr,
         )
+        sys.exit(EXIT_NOT_CONFIGURED)
     cfg["_path"] = os.path.abspath(path)
     cfg["_dir"] = os.path.dirname(os.path.abspath(path))
     return cfg
