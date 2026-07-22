@@ -29,7 +29,11 @@ BADGES = {
     STATUS_UNKNOWN: ("?", "Inconnu", "muted"),
 }
 
-PRODUCT_LABELS = {"macrium": "Macrium", "retrospect": "Retrospect"}
+PRODUCT_LABELS = {
+    "macrium": "Macrium", "retrospect": "Retrospect",
+    "sqlagent": "SQL Server Agent", "pbs": "Proxmox Backup Server",
+    "script": "Script personnalisé",
+}
 NO_CLIENT = "(non assigné)"
 # Du plus grave au moins grave, pour la vue par client
 SEVERITY = [STATUS_ERROR, STATUS_MISSING, STATUS_WARNING, STATUS_UNKNOWN,
@@ -485,7 +489,8 @@ def _filters(clients: list[str]) -> str:
         return f'<div class="seg" role="group">{btns}</div>'
 
     produits = [("tous", "Tous"), ("macrium", "Macrium"),
-                ("retrospect", "Retrospect")]
+                ("retrospect", "Retrospect"), ("sqlagent", "SQL Agent"),
+                ("pbs", "Proxmox"), ("script", "Script")]
     etats = [("tous", "Tous"), (STATUS_ERROR, "Erreur"),
              (STATUS_WARNING, "Avert."), (STATUS_SUCCESS, "Succès"),
              (STATUS_UNKNOWN, "Inconnu")]

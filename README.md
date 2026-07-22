@@ -172,13 +172,31 @@ client_folders:
 ```
 
 L'outil explore alors chaque sous-dossier : le **client = nom du sous-dossier**
-(repris tel quel, sans regex à maintenir) et le **produit (Macrium/Retrospect)
-est détecté automatiquement** dans le contenu — un dossier peut donc mélanger
-les deux. **Ajouter un client revient à créer un sous-dossier** dans Outlook,
+(repris tel quel, sans regex à maintenir) et le **produit est détecté
+automatiquement** dans le contenu — un dossier peut donc mélanger plusieurs
+systèmes. **Ajouter un client revient à créer un sous-dossier** dans Outlook,
 sans toucher à `config.yaml`. L'assistant `setup` propose ce mode (« un dossier
 parent dont chaque sous-dossier est un client »). Se combine au besoin avec les
 dossiers par produit (`folders`) et avec la section `clients` (qui ne
 s'applique qu'aux courriels sans client déjà déterminé par le dossier).
+
+Au-delà de Macrium et Retrospect, ce mode reconnaît automatiquement trois
+autres systèmes fréquemment reçus dans les mêmes boîtes :
+
+| Produit | Détecté grâce à | État |
+|---|---|---|
+| **SQL Server Agent** | `SQL Server Job System` (modèle standard Microsoft) | Succès confirmé sur de vrais courriels ; échec déduit du modèle symétrique (`[The job failed.]`) |
+| **Proxmox Backup Server** | `vzdump`, `Garbage Collect Datastore`, `Pruning datastore`, `Sync remote … datastore` | Succès confirmé ; échec déduit (`backup failed`, `TASK ERROR`) |
+| **Script personnalisé** | Sujet à convention `[Success]` / `[Failed]` / `[Warning]` | Succès confirmé ; échec/avertissement déduits de la même convention |
+
+Les motifs de **succès** ci-dessus ont été validés avec de vrais courriels ; les
+motifs d'**échec/avertissement** sont déduits du modèle standard de chaque
+système (pas encore vus en pratique) — à confirmer avec `diagnose` dès qu'un
+vrai cas d'échec se présente, et à ajuster via `parsers.sqlagent` /
+`parsers.pbs` / `parsers.script` dans `config.yaml` si la formulation diffère.
+N'importe quel autre système inconnu reste classé par mots-clés génériques
+(`successful`, `succeeded`, `job failed`…) même sans reconnaissance de produit
+dédiée, avant de retomber en « Inconnu ».
 
 ## Détection des backups manquants
 
