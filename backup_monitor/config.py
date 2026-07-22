@@ -32,6 +32,16 @@ DEFAULTS = {
     },
     "expected_jobs": [],
     "clients": [],
+    # Notifications sortantes sur TRANSITION d'état (jamais à chaque cycle).
+    # Désactivées par défaut — voir config.example.yaml pour la doc complète.
+    "notifications": {
+        "enabled": False,
+        "methods": [],            # "toast" (Windows) et/ou "webhook"
+        "webhook_url": "",
+        "webhook_format": "text",  # "text" (ntfy) ou "json" (Teams/Slack)
+        "notify_on": ["erreur", "manquant"],
+        "notify_recovery": True,
+    },
     "report": {
         "output": "tableau-backups.html",
         "refresh_seconds": 300,

@@ -206,6 +206,34 @@ correspondant (`match`, regex sur sujet + machine + tâche) n'est reçu dans la
 fenêtre, la tâche passe à « Manquant » — un backup qui n'envoie plus rien est
 aussi grave qu'un backup en erreur.
 
+Pour ne pas écrire ce bloc à la main : `lancer.bat suggest-jobs` (ou
+`python -m backup_monitor suggest-jobs`) regroupe les courriels observés par
+machine/tâche, estime la fréquence d'envoi et imprime un bloc `expected_jobs`
+prêt à coller dans `config.yaml` — il reste à ajuster noms et tolérances.
+
+## Notifications (optionnel, désactivé par défaut)
+
+Par défaut l'outil n'alerte pas : il faut regarder le tableau. La section
+`notifications` de `config.yaml` active des alertes **sur transition d'état
+uniquement** (une tâche qui passe en erreur/manquant, ou qui se rétablit) —
+jamais une répétition à chaque cycle de 5 minutes. L'état du dernier passage
+est mémorisé dans `dernier-etat.json`.
+
+- `toast` : notification Windows native, aucune dépendance, rien ne sort du
+  poste.
+- `webhook` : POST HTTP vers `webhook_url` (`text` pour ntfy, `json` pour
+  Teams/Slack). C'est le **seul** trafic réseau sortant possible de l'outil,
+  activé explicitement et vers une URL que vous choisissez.
+
+## Codes de sortie (supervision RMM / Planificateur)
+
+Avec `run --fail-on-error` (utilisé par la tâche planifiée et l'unité
+systemd) : `0` = tout va bien, `1` = panne de l'outil, `2` = backups en
+erreur ou manquants, `3` = pas encore configuré, `4` = collecte partielle
+(dossiers ou courriels illisibles). Le « Dernier résultat » de la tâche
+planifiée devient donc directement exploitable par un RMM. Ajouter
+`--fail-on-unknown` pour que les courriels non reconnus comptent aussi.
+
 ## Modes de repli : EWS / IMAP (accès serveur direct, sans Outlook)
 
 Pour exécuter l'outil ailleurs que sur le poste (ex. un serveur Linux) :

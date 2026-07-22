@@ -339,3 +339,51 @@ def job_states(cfg: dict, events: list[BackupEvent]) -> list[JobState]:
                 name=name, product=job.get("product", "?"),
                 status=last.status, last_event=last, client=client))
     return states
+
+
+def suggest_jobs(events: list[BackupEvent]) -> list[dict]:
+    """Propose des expected_jobs à partir des courriels observés : regroupe
+    par (produit, machine/client, tâche), estime la fréquence d'envoi
+    (médiane des intervalles) et construit une regex de correspondance
+    précise. Toutes les données viennent des BackupEvent déjà analysés —
+    c'est la commande « suggest-jobs » qui met ça en YAML."""
+    groups: dict = {}
+    for ev in events:
+        who = ev.machine or ev.client
+        what = ev.job
+        if not who and not what:
+            continue  # rien d'assez stable pour construire une correspondance
+        groups.setdefault((ev.product, who, what), []).append(ev)
+    out: list[dict] = []
+    for (product, who, what), evs in sorted(groups.items()):
+        times = sorted(e.received for e in evs)
+        if len(times) >= 3:
+            deltas = sorted((b - a).total_seconds() / 3600
+                            for a, b in zip(times, times[1:]))
+            every = max(1, round(deltas[len(deltas) // 2]))
+            # Coller aux fréquences usuelles quand on en est proche.
+            for std in (1, 2, 4, 6, 8, 12, 24, 48, 72, 168):
+                if abs(every - std) <= std * 0.25:
+                    every = std
+                    break
+        else:
+            every = 24  # trop peu de courriels : valeur à ajuster à la main
+        if who and what:
+            # Les deux critères doivent matcher (lookaheads) : deux tâches
+            # d'une même machine ne se masquent pas mutuellement.
+            match = f"(?=.*{re.escape(who)})(?=.*{re.escape(what)})"
+        else:
+            match = re.escape(who or what)
+        sug = {
+            "name": f"{who} — {what}" if who and what else (who or what),
+            "product": product,
+            "match": match,
+            "every_hours": every,
+            "grace_hours": max(2, round(every * 0.25)),
+            "samples": len(evs),
+        }
+        client = next((e.client for e in reversed(evs) if e.client), "")
+        if client:
+            sug["client"] = client
+        out.append(sug)
+    return out
