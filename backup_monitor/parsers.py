@@ -22,18 +22,30 @@ DEFAULT_PATTERNS = {
         "failure": [
             r"(?i)backup aborted", r"(?i)clone aborted", r"(?i)\bfailed\b",
             r"(?i)échou", r"(?i)errors?\s*[:=]\s*[1-9]",
+            # Modèle de notification intégré de Macrium Reflect (« <machine>
+            # Macrium Reflect - Backup Failure » / « Failure Notification »,
+            # corps « Failed :( »).
+            r"(?i)\bfailure\b", r"(?i)failed\s*:\(",
         ],
         "warning": [
             r"(?i)completed with warnings", r"(?i)warnings?\s*[:=]\s*[1-9]",
             r"(?i)avertissement",
+            r"(?i)backup\s+warning", r"(?i)warning\s+notification",
         ],
         "success": [
             r"(?i)completed successfully", r"(?i)backup completed",
             r"(?i)réussi", r"(?i)succès",
+            # Idem, pendant succès : sujet « ... Backup Success » / « Success
+            # Notification », corps « Success :) ».
+            r"(?i)backup\s+success", r"(?i)success\s+notification",
+            r"(?i)success\s*:\)",
         ],
         "extract": {
             "machine": [r"(?i)computer[\s:]+([A-Za-z0-9._-]+)",
-                        r"(?i)ordinateur[\s:]+([A-Za-z0-9._-]+)"],
+                        r"(?i)ordinateur[\s:]+([A-Za-z0-9._-]+)",
+                        # Sujet type « SRV1(Backups) Macrium Reflect - ... » :
+                        # le nom de machine précède « Macrium Reflect ».
+                        r"^([A-Za-z0-9._+-]+)\s*(?:\([^)]*\))?\s*Macrium Reflect"],
             "job": [r"(?i)backup definition[\s:'\"]+([^'\"\r\n]+)"],
         },
     },
@@ -52,10 +64,71 @@ DEFAULT_PATTERNS = {
             "job": [r"[Ss]cript\s+[«\"']([^»\"']+)"],
         },
     },
+    # Systèmes fréquemment mélangés aux courriels Macrium/Retrospect dans une
+    # boîte partagée (mode client_folders) : reconnus pour un statut ET un
+    # libellé de produit exacts, plutôt qu'un classement générique « macrium ».
+    "sqlagent": {
+        # Modèle standard des notifications d'opérateur SQL Server Agent :
+        # « [The job succeeded.] SQL Server Job System: '<job>' completed/
+        # failed on <serveur>. »
+        "failure": [r"(?i)\[the job failed\]", r"(?i)\bjob failed\b"],
+        "warning": [r"(?i)\[the job succeeded with warning"],
+        # Gardes anti-négation : « was not succeeded » ne doit pas passer
+        # pour un succès (voir la même précaution sur GENERIC_PATTERNS).
+        "success": [r"(?i)\[the job succeeded\]",
+                    r"(?i)(?<!not )(?<!non )\bjob succeeded\b"],
+        "extract": {
+            "machine": [r"(?i)completed on\s+\\{1,2}([A-Za-z0-9_-]+)",
+                        r"(?i)failed on\s+\\{1,2}([A-Za-z0-9_-]+)"],
+            "job": [r"SQL Server Job System:\s*'([^']+)'"],
+        },
+    },
+    "pbs": {
+        # Proxmox Backup Server / vzdump : sauvegardes VM (vzdump), purge
+        # (Garbage Collect), rétention (Pruning) et réplication (Sync remote).
+        "failure": [r"(?i)\bbackup failed\b", r"(?i)\btask error\b",
+                    r"(?i)\bfailed\b"],
+        "warning": [],
+        # Garde anti-négation : « was not successful » ne doit pas passer
+        # pour un succès (voir la même précaution sur GENERIC_PATTERNS).
+        "success": [r"(?i)(?<!not )(?<!non )(?<!sans )(?<!without )\bsuccessful\b"],
+        "extract": {
+            "machine": [r"\(([A-Za-z0-9_.-]+)\)"],
+            "job": [r"[Dd]atastore\s+'([^']+)'"],
+        },
+    },
+    "script": {
+        # Scripts maison à convention « [Success]/[Failed]/[Warning] » en
+        # préfixe de sujet (ex. rapports générés par un outil interne).
+        "failure": [r"(?i)\[failed\]", r"(?i)\[error\]"],
+        "warning": [r"(?i)\[warning\]"],
+        "success": [r"(?i)\[success\]", r"(?i)\[ok\]"],
+        "extract": {"machine": [], "job": []},
+    },
 }
 
 _ORDER = [("failure", STATUS_ERROR), ("warning", STATUS_WARNING),
           ("success", STATUS_SUCCESS)]
+
+# Filet de sécurité générique : appliqué en dernier recours (après les motifs
+# Macrium/Retrospect) pour les courriels d'AUTRES systèmes qui atterrissent
+# dans les mêmes dossiers clients (mode client_folders) — jobs SQL Server
+# Agent, Proxmox Backup Server (vzdump), scripts maison à convention
+# « [Success]/[Failed] ». Les gardes « (?<!not )/(?<!non ) » évitent de
+# classer « not successful »/« non réussi » comme un succès.
+GENERIC_PATTERNS = {
+    "failure": [
+        r"(?i)\bjob failed\b", r"(?i)\[failed\]", r"(?i)\btask error\b",
+    ],
+    "warning": [
+        r"(?i)\[warning\]",
+    ],
+    "success": [
+        r"(?i)(?<!not )(?<!non )(?<!sans )(?<!without )\bsuccessful\b",
+        r"(?i)(?<!not )(?<!non )\bsucceeded\b",
+        r"(?i)\[success\]",
+    ],
+}
 
 
 def _patterns_for(cfg: dict, product: str) -> dict:
@@ -102,13 +175,22 @@ def _known_products(cfg: dict) -> list[str]:
 
 def _detect_product(cfg: dict, text: str) -> str:
     """Devine le produit d'un courriel issu d'un dossier « auto » (produits
-    mixtes). D'abord le nom du produit dans le texte ; sinon le jeu de motifs
-    qui parvient à classer le courriel ; sinon « macrium » par défaut."""
+    mixtes). D'abord une signature de produit connu dans le texte ; sinon le
+    jeu de motifs qui parvient à classer le courriel ; sinon « macrium » par
+    défaut."""
     low = text.lower()
     if "retrospect" in low:
         return "retrospect"
     if "macrium" in low or "reflect" in low:
         return "macrium"
+    if "sql server job system" in low:
+        return "sqlagent"
+    if ("vzdump" in low or "garbage collect datastore" in low
+            or "pruning datastore" in low
+            or ("sync remote" in low and "datastore" in low)):
+        return "pbs"
+    if re.search(r"\[(success|failed|warning|error|ok)\]", low):
+        return "script"
     for product in _known_products(cfg):
         pats = _patterns_for(cfg, product)
         for key, _ in _ORDER:
@@ -131,6 +213,15 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
         if hit:
             status, matched = st, hit
             break
+    if status == STATUS_UNKNOWN:
+        # Aucun motif du produit détecté/assigné n'a matché : le courriel
+        # vient peut-être d'un autre système (mode client_folders). Filet de
+        # sécurité générique avant d'abandonner en « inconnu ».
+        for key, st in _ORDER:
+            hit = _first_match(GENERIC_PATTERNS.get(key), text)
+            if hit:
+                status, matched = st, hit
+                break
     return BackupEvent(
         product=product,
         status=status,

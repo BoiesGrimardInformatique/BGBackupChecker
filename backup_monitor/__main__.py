@@ -20,7 +20,7 @@ import traceback
 from datetime import datetime
 
 from . import STATUS_ERROR, STATUS_MISSING, STATUS_WARNING
-from .parsers import analyze, job_states
+from .parsers import DEFAULT_PATTERNS, analyze, job_states
 from .report import render, write
 
 
@@ -81,7 +81,12 @@ def _diagnose(cfg, password) -> None:
               "dossiers (commande folders) et analysis.days_back.")
         return
     print(f"{len(events)} courriels analysés.\n")
-    for product in ("macrium", "retrospect"):
+    # Produits connus d'abord (ordre stable), puis tout produit détecté mais
+    # non listé dans parsers.DEFAULT_PATTERNS (ex. via config.yaml : parsers).
+    seen = {e.product for e in events}
+    ordered = [p for p in DEFAULT_PATTERNS if p in seen]
+    ordered += sorted(seen - set(ordered))
+    for product in ordered:
         evs = [e for e in events if e.product == product]
         if not evs:
             continue

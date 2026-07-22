@@ -100,6 +100,34 @@ def _checks() -> list[tuple[str, bool, str]]:
         check("Mode auto : client = nom du sous-dossier",
               all(e.client == "Client Alpha" for e in auto_ev))
 
+        # Mode auto : systèmes tiers fréquents (mélangés aux courriels
+        # Macrium/Retrospect dans une boîte partagée) reconnus par produit ET
+        # statut. Sujets réels de notification standard de chaque système.
+        other_mails = [
+            RawMail("[The job succeeded.] SQL Server Job System: 'Nightly Full' "
+                    "completed on \\\\SRV1.", "b@test.local", now,
+                    "JOB RUN: 'Nightly Full' was run.", "Sauvegardes/Client Beta",
+                    "auto", client="Client Beta"),
+            RawMail("vzdump backup status (HOST.local): backup successful",
+                    "b@test.local", now, "", "Sauvegardes/Client Beta", "auto",
+                    client="Client Beta"),
+            RawMail("TOOLX - [Success] rapport quotidien", "b@test.local", now,
+                    "", "Sauvegardes/Client Beta", "auto", client="Client Beta"),
+        ]
+        other_ev = analyze(cfg, other_mails)
+        check("Mode auto : SQL Server Agent reconnu (produit + succès)",
+              any(e.product == "sqlagent" and e.status == STATUS_SUCCESS
+                  for e in other_ev),
+              str([(e.product, e.status) for e in other_ev]))
+        check("Mode auto : Proxmox Backup Server reconnu (produit + succès)",
+              any(e.product == "pbs" and e.status == STATUS_SUCCESS
+                  for e in other_ev),
+              str([(e.product, e.status) for e in other_ev]))
+        check("Mode auto : script personnalisé [Success] reconnu",
+              any(e.product == "script" and e.status == STATUS_SUCCESS
+                  for e in other_ev),
+              str([(e.product, e.status) for e in other_ev]))
+
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
               not sender_allowed("pirate@evil.com", ["backup@test.local"]))
