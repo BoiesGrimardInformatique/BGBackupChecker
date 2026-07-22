@@ -79,6 +79,27 @@ def _checks() -> list[tuple[str, bool, str]]:
         check("Détection de tâche manquante",
               st.get("Tâche disparue") == STATUS_MISSING, str(st))
 
+        # Mode auto (client_folders) : produit détecté au contenu, client = dossier
+        auto_mails = [
+            RawMail("Macrium Reflect Backup", "b@test.local", now,
+                    "Backup completed successfully\nErrors: 0",
+                    "Sauvegardes/Client Alpha", "auto", client="Client Alpha"),
+            RawMail("Retrospect notification", "r@test.local", now,
+                    'Script "Postes" failed\nerror -1101',
+                    "Sauvegardes/Client Alpha", "auto", client="Client Alpha"),
+        ]
+        auto_ev = analyze(cfg, auto_mails)
+        check("Mode auto : produit Macrium détecté au contenu",
+              any(e.product == "macrium" and e.status == STATUS_SUCCESS
+                  for e in auto_ev),
+              str([(e.product, e.status) for e in auto_ev]))
+        check("Mode auto : produit Retrospect détecté au contenu",
+              any(e.product == "retrospect" and e.status == STATUS_ERROR
+                  for e in auto_ev),
+              str([(e.product, e.status) for e in auto_ev]))
+        check("Mode auto : client = nom du sous-dossier",
+              all(e.client == "Client Alpha" for e in auto_ev))
+
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
               not sender_allowed("pirate@evil.com", ["backup@test.local"]))

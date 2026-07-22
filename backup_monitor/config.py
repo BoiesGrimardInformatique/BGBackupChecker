@@ -20,6 +20,9 @@ DEFAULTS = {
     "outlook": {"store": ""},
     "imap": {"server": "", "port": 993, "ssl": True},
     "folders": {"macrium": [], "retrospect": []},
+    # Dossiers parents explorés récursivement : chaque sous-dossier est un
+    # client (son nom), le produit est détecté au contenu. Mode Outlook.
+    "client_folders": [],
     "analysis": {"days_back": 14, "timezone": "America/Toronto"},
     "attachments": {
         "enabled": False,
@@ -75,8 +78,9 @@ def load(path: str, require_folders: bool = True) -> dict:
                  "(valeurs possibles : outlook, ews, imap).")
     if method != "outlook" and not cfg["exchange"]["email"]:
         sys.exit("config.yaml : exchange.email est requis pour ews/imap.")
-    if require_folders and not any(
-            cfg["folders"].get(p) for p in ("macrium", "retrospect")):
+    if require_folders and not (
+            any(cfg["folders"].get(p) for p in ("macrium", "retrospect"))
+            or cfg.get("client_folders")):
         print(
             "config.yaml : aucun dossier à surveiller n'est défini.\n"
             "Lancez « python -m backup_monitor setup » pour scanner la boîte "

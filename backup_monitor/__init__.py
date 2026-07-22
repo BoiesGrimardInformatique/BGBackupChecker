@@ -52,7 +52,8 @@ class RawMail:
     received: datetime
     body: str
     folder: str
-    product: str  # "macrium" ou "retrospect"
+    product: str  # "macrium", "retrospect", ou "auto" (à détecter au contenu)
+    client: str = ""  # rempli quand le dossier désigne le client (mode auto)
     attachments_text: str = ""  # texte des pièces jointes autorisées
     attachments_note: str = ""  # résumé (analysées / ignorées et pourquoi)
 

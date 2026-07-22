@@ -101,14 +101,45 @@ def _pick_folders(entries: list[dict], store: str) -> dict:
     return selection
 
 
-def _save(cfg_path: str, store: str, selection: dict, multi_store: bool) -> None:
+def _pick_client_parents(entries: list[dict], store: str) -> list[str]:
+    """Mode auto : choisit un ou plusieurs dossiers PARENTS dont chaque
+    sous-dossier est un client (le nom du sous-dossier)."""
+    folders = [e for e in entries if e["store"] == store]
+    if not folders:
+        sys.exit(f"Aucun dossier trouvé dans la boîte « {store} ».")
+    print(f"\n== Dossiers de « {store} » ==")
+    for i, f in enumerate(folders, 1):
+        print(f"  {i:3}. {f['path']}")
+    while True:
+        raw = _ask(
+            "\nDossier(s) PARENT dont chaque sous-dossier est un client — "
+            "numéros séparés par des virgules : ", "")
+        try:
+            nums = _parse_nums(raw, len(folders))
+        except ValueError as exc:
+            print(f"  {exc}")
+            continue
+        if nums:
+            return [folders[n - 1]["path"] for n in nums]
+        print("  Entrer au moins un numéro.")
+
+
+def _save(cfg_path: str, store: str, selection: dict, multi_store: bool,
+          client_folders: list[str] | None = None) -> None:
     with open(cfg_path, encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     data.setdefault("outlook", {})
     if multi_store and str(data.get("exchange", {}).get("method",
                                                         "outlook")).lower() == "outlook":
         data["outlook"]["store"] = store
-    data["folders"] = {key: selection.get(key, []) for key, _ in PRODUCTS}
+    if client_folders is not None:
+        # Mode auto : dossiers parents (clients = sous-dossiers). On vide les
+        # dossiers par produit pour éviter tout double comptage.
+        data["client_folders"] = client_folders
+        data["folders"] = {key: [] for key, _ in PRODUCTS}
+    else:
+        data["folders"] = {key: selection.get(key, []) for key, _ in PRODUCTS}
+        data["client_folders"] = []
     header = (
         f"# Mis à jour par « python -m backup_monitor setup » le {date.today()}.\n"
         "# Documentation complète des options : config.example.yaml\n"
@@ -150,18 +181,35 @@ def run(cfg: dict, password, fetcher) -> None:
         sys.exit(f"Aucun dossier trouvé dans « {store or 'la boîte'} » — "
                  "vérifier que la boîte est bien configurée dans Outlook.")
 
-    selection = _pick_folders(entries, store)
+    print("\n== Organisation des dossiers de sauvegarde ==")
+    print("  1. Dossiers séparés par produit (un pour Macrium, un pour Retrospect)")
+    print("  2. Un dossier PARENT dont chaque sous-dossier est un client")
+    print("     (Macrium/Retrospect mélangés ; produit détecté automatiquement)")
+    auto = _ask("Votre choix [1] : ", "1").strip() == "2"
+
+    parents: list[str] = []
+    selection: dict = {}
+    if auto:
+        parents = _pick_client_parents(entries, store)
+    else:
+        selection = _pick_folders(entries, store)
 
     print("\n== Récapitulatif ==")
     print(f"  Boîte : {store}")
-    for key, label in PRODUCTS:
-        for path in selection.get(key) or ["(aucun)"]:
-            print(f"  {label:<11}: {path}")
+    if auto:
+        print("  Mode : un client par sous-dossier (produit détecté au contenu)")
+        for path in parents:
+            print(f"  Dossier parent : {path}")
+    else:
+        for key, label in PRODUCTS:
+            for path in selection.get(key) or ["(aucun)"]:
+                print(f"  {label:<11}: {path}")
     if _ask("\nEnregistrer dans config.yaml ? [O/n] : ", "o").lower() not in ("o", "oui", "y", "yes"):
         print("Abandon — configuration non modifiée.")
         return
 
-    _save(cfg["_path"], store, selection, multi_store=len(stores) > 1)
+    _save(cfg["_path"], store, selection, multi_store=len(stores) > 1,
+          client_folders=parents if auto else None)
     print(f"\nConfiguration enregistrée : {cfg['_path']}")
     print("Pensez à déclarer vos tâches attendues (expected_jobs) pour la "
           "détection des backups manquants, puis lancez :")
