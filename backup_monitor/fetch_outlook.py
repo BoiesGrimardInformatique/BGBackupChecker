@@ -67,19 +67,42 @@ def _walk(folder, prefix, store, default, out):
     except Exception:
         subs = []
     for sub in subs:
-        path = f"{prefix}/{sub.Name}" if prefix else sub.Name
         try:
-            count = sub.Items.Count
+            name = sub.Name
         except Exception:
-            count = None
-        out.append({"store": store, "path": path, "count": count,
+            continue
+        path = f"{prefix}/{name}" if prefix else name
+        # Le nombre d'éléments n'est PAS lu : le compter obligerait Outlook à
+        # énumérer chaque dossier, ce qui fige l'application sur les grosses
+        # boîtes. Le dossier se choisit par son nom.
+        out.append({"store": store, "path": path, "count": None,
                     "default": default})
         _walk(sub, path, store, default, out)
 
 
-def folder_tree(cfg: dict, password=None) -> list[dict]:
-    """Toutes les boîtes du profil Outlook et leurs dossiers (lecture seule).
-    Les chemins sont relatifs à la racine de chaque boîte."""
+def list_stores(cfg: dict, password=None) -> list[dict]:
+    """Noms des boîtes (magasins) du profil Outlook, SANS balayer les dossiers.
+    Opération légère : elle permet de choisir la boîte AVANT le scan complet,
+    pour ne pas figer Outlook en énumérant tout le profil (boîtes partagées,
+    archives en ligne…)."""
+    ns = _namespace()
+    try:
+        default_store = ns.GetDefaultFolder(OL_FOLDER_INBOX).Parent.Name
+    except Exception:
+        default_store = ""
+    stores: list[dict] = []
+    for root in ns.Folders:
+        try:
+            name = root.Name
+        except Exception:
+            continue
+        stores.append({"name": name, "default": name == default_store})
+    return stores
+
+
+def folder_tree(cfg: dict, password=None, store: str = "") -> list[dict]:
+    """Dossiers d'une boîte (celle nommée par `store`, ou toutes si vide), en
+    lecture seule. Les chemins sont relatifs à la racine de chaque boîte."""
     ns = _namespace()
     try:
         default_store = ns.GetDefaultFolder(OL_FOLDER_INBOX).Parent.Name
@@ -87,8 +110,13 @@ def folder_tree(cfg: dict, password=None) -> list[dict]:
         default_store = ""
     entries: list[dict] = []
     for store_root in ns.Folders:
-        _walk(store_root, "", store_root.Name,
-              store_root.Name == default_store, entries)
+        try:
+            name = store_root.Name
+        except Exception:
+            continue
+        if store and name != store:
+            continue
+        _walk(store_root, "", name, name == default_store, entries)
     return entries
 
 

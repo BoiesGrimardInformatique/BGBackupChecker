@@ -33,30 +33,32 @@ def _parse_nums(raw: str, maxi: int) -> list[int]:
     return nums
 
 
-def _pick_store(entries: list[dict]) -> str:
-    stores = []
-    for e in entries:
-        if e["store"] not in stores:
-            stores.append(e["store"])
-    if len(stores) <= 1:
-        return stores[0] if stores else ""
+def _pick_store(stores: list[dict]) -> str:
+    """Choisit UNE boîte parmi une liste de {name, default}. Retour anticipé
+    (sans question) s'il n'y en a qu'une."""
+    names: list[str] = []
+    for s in stores:
+        if s["name"] not in names:
+            names.append(s["name"])
+    if len(names) <= 1:
+        return names[0] if names else ""
     print("\n== Boîtes (magasins) visibles dans Outlook ==")
     default_idx = 1
-    for i, s in enumerate(stores, 1):
+    for i, name in enumerate(names, 1):
         tag = ""
-        if any(e["store"] == s and e.get("default") for e in entries):
+        if any(s["name"] == name and s.get("default") for s in stores):
             tag = "  (boîte par défaut du profil)"
             default_idx = i
-        print(f"  {i}. {s}{tag}")
+        print(f"  {i}. {name}{tag}")
     while True:
         raw = _ask(f"Boîte à surveiller [{default_idx}] : ", str(default_idx))
         try:
-            n = _parse_nums(raw, len(stores))
+            n = _parse_nums(raw, len(names))
         except ValueError as exc:
             print(f"  {exc}")
             continue
         if len(n) == 1:
-            return stores[n[0] - 1]
+            return names[n[0] - 1]
         print("  Choisir UNE seule boîte.")
 
 
@@ -122,13 +124,32 @@ def _save(cfg_path: str, store: str, selection: dict, multi_store: bool) -> None
 
 
 def run(cfg: dict, password, fetcher) -> None:
-    print("Analyse des boîtes et dossiers disponibles (lecture seule)…")
-    entries = fetcher.folder_tree(cfg, password)
-    if not entries:
-        sys.exit("Aucun dossier trouvé — Outlook est-il configuré sur ce poste ?")
+    # Étape 1 — choisir la boîte AVANT de balayer ses dossiers. Sur Outlook,
+    # énumérer toutes les boîtes du profil (partagées, archives en ligne…) et
+    # compter leurs éléments fige l'application : on ne scanne donc que la
+    # boîte retenue. Les autres méthodes (imap/ews) n'ont qu'un seul compte.
+    list_stores = getattr(fetcher, "list_stores", None)
+    if list_stores is not None:
+        stores = list_stores(cfg, password)
+        if not stores:
+            sys.exit("Aucune boîte trouvée — Outlook est-il configuré sur ce poste ?")
+        store = _pick_store(stores)
+        print(f"\nAnalyse des dossiers de « {store} » (lecture seule)…")
+        entries = fetcher.folder_tree(cfg, password, store=store)
+    else:
+        print("Analyse des dossiers disponibles (lecture seule)…")
+        entries = fetcher.folder_tree(cfg, password)
+        names: list[str] = []
+        for e in entries:
+            if e["store"] not in names:
+                names.append(e["store"])
+        stores = [{"name": n, "default": True} for n in names]
+        store = _pick_store(stores)
 
-    stores = {e["store"] for e in entries}
-    store = _pick_store(entries)
+    if not entries:
+        sys.exit(f"Aucun dossier trouvé dans « {store or 'la boîte'} » — "
+                 "vérifier que la boîte est bien configurée dans Outlook.")
+
     selection = _pick_folders(entries, store)
 
     print("\n== Récapitulatif ==")
