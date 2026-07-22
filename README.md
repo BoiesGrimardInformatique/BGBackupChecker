@@ -32,10 +32,12 @@ serveur direct (voir plus bas).
      `wheels\` si le dossier est présent) ;
    - lance l'**autotest hors-ligne** (`selftest`) : analyseurs, verrous des
      pièces jointes et génération du tableau, sans toucher Outlook ni le réseau ;
-   - lance l'**assistant** qui **scanne les boîtes et dossiers visibles dans
-     Outlook** (lecture seule), suggère ceux dont le nom contient
-     « macrium »/« retrospect », fait choisir la boîte puis les dossiers à
-     surveiller pour chaque produit, et enregistre le tout dans `config.yaml` ;
+   - lance l'**assistant** : il liste d'abord les **boîtes** du profil Outlook
+     et vous en fait **choisir une** ; il ne **scanne alors que les dossiers de
+     cette boîte** (lecture seule) — pas tout le profil, pour ne pas figer
+     Outlook — suggère ceux dont le nom contient « macrium »/« retrospect »,
+     vous fait choisir les dossiers à surveiller, et enregistre dans
+     `config.yaml` ;
    - fait une **première analyse** et génère `tableau-backups.html`.
 
    > Si Outlook n'est pas encore prêt sur le poste, l'installation s'arrête
@@ -194,6 +196,7 @@ Sous Linux, `install.sh` et `systemd/installer-timer.sh` couvrent ce scénario.
 |---|---|
 | `aucun dossier à surveiller n'est défini` | Configuration pas encore faite (pas une panne) : lancer `lancer.bat setup` — au double-clic, `lancer.bat` et `install.bat` enchaînent désormais l'assistant automatiquement |
 | `No time zone found` / `No module named 'tzdata'` | Base des fuseaux horaires absente (fréquent sous Windows) : relancer `install.bat` (il installe/répare `tzdata` automatiquement) ou `venv\Scripts\python -m pip install tzdata` |
+| Outlook se fige pendant `setup` | `setup` fait maintenant choisir la boîte d'abord et ne scanne que celle-ci (sans compter les éléments). Alternative sans scan : renseigner directement `folders:` dans `config.yaml` (chemins séparés par `/`, ex. `Boîte de réception/Backups/Macrium`) puis lancer `run` |
 | `Dossier Outlook introuvable` | `python -m backup_monitor folders` pour les chemins exacts (attention aux noms français : « Boîte de réception ») |
 | La boîte n'est pas celle par défaut | Renseigner `outlook.store` avec le nom exact du magasin affiché dans Outlook |
 | Fenêtre de sécurité Outlook au lancement | Normal si un antivirus restreint l'accès programmatique ; l'outil ne fait que lire — autoriser l'accès |
