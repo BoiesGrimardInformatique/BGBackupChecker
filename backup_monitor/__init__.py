@@ -17,6 +17,12 @@ STATUS_SUCCESS = "succes"
 STATUS_UNKNOWN = "inconnu"
 STATUS_MISSING = "manquant"
 
+# Code de sortie signalant « pas encore configuré » : fichier config.yaml
+# absent, ou aucun dossier à surveiller choisi. Distinct d'une vraie panne
+# (code 1) pour que les lanceurs (lancer.bat, install.bat) puissent enchaîner
+# automatiquement sur l'assistant « setup » plutôt que d'afficher une erreur.
+EXIT_NOT_CONFIGURED = 3
+
 
 @dataclass
 class RawMail:

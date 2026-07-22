@@ -1,0 +1,14 @@
+# Environnements et caches Python
+venv/
+__pycache__/
+*.pyc
+
+# Fichiers générés à l'exécution, propres à chaque poste (ne pas versionner) :
+# config.yaml est créé depuis config.example.yaml par install.bat / setup.
+config.yaml
+tableau-backups.html
+backup-monitor.log
+selftest.html
+
+# Cache hors-ligne des dépendances (généré par preparer-cle.bat)
+wheels/

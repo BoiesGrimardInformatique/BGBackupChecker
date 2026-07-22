@@ -26,25 +26,35 @@ serveur direct (voir plus bas).
 1. Installer Python 3.10+ depuis https://www.python.org (cocher « Add python.exe
    to PATH »).
 2. Copier ce dossier sur le poste (ex. `C:\Outils\backup-monitor`).
-3. Double-cliquer `install.bat` (ou le lancer dans un terminal).
-4. Valider l'installation : `venv\Scripts\python -m backup_monitor selftest`
-   — autotest complet (analyseurs, verrous des pièces jointes, génération du
-   tableau) sans toucher Outlook ni le réseau.
-5. Lancer l'assistant : `venv\Scripts\python -m backup_monitor setup`
-   → l'outil **scanne les boîtes et dossiers visibles dans Outlook** (lecture
-   seule), suggère ceux dont le nom contient « macrium »/« retrospect », vous
-   fait choisir la boîte puis les dossiers à surveiller pour chaque produit,
-   et enregistre le tout dans `config.yaml`.
-6. Première analyse : `venv\Scripts\python -m backup_monitor run`, puis
-   **bilan de calibrage** : `... diagnose` — comptes par produit et par état,
-   taux d'extraction machine/tâche/client, et liste des courriels non
+3. Double-cliquer `install.bat`. **Il déroule toute l'installation, dans
+   l'ordre**, pour terminer sur un outil déjà configuré :
+   - crée l'environnement Python et installe les dépendances (hors-ligne depuis
+     `wheels\` si le dossier est présent) ;
+   - lance l'**autotest hors-ligne** (`selftest`) : analyseurs, verrous des
+     pièces jointes et génération du tableau, sans toucher Outlook ni le réseau ;
+   - lance l'**assistant** qui **scanne les boîtes et dossiers visibles dans
+     Outlook** (lecture seule), suggère ceux dont le nom contient
+     « macrium »/« retrospect », fait choisir la boîte puis les dossiers à
+     surveiller pour chaque produit, et enregistre le tout dans `config.yaml` ;
+   - fait une **première analyse** et génère `tableau-backups.html`.
+
+   > Si Outlook n'est pas encore prêt sur le poste, l'installation s'arrête
+   > proprement après l'autotest et invite à terminer la configuration plus
+   > tard avec `lancer.bat setup` (ou
+   > `venv\Scripts\python -m backup_monitor setup`) — **aucune erreur bloquante**.
+
+4. **Bilan de calibrage** (recommandé après la première analyse) :
+   `venv\Scripts\python -m backup_monitor diagnose` — comptes par produit et par
+   état, taux d'extraction machine/tâche/client, et liste des courriels non
    reconnus avec extrait, pour ajuster les motifs (`parsers`) rapidement.
-7. Déclarer les tâches attendues (`expected_jobs`) et les clients (`clients`)
-   dans `config.yaml`.
-8. Ouvrir `tableau-backups.html` dans le navigateur.
+5. Déclarer les tâches attendues (`expected_jobs`) et les clients (`clients`)
+   dans `config.yaml` (détection des backups manquants et suivi par client).
+6. Ouvrir `tableau-backups.html` (déjà généré par l'installation ; `lancer.bat`
+   le rouvre à chaque exécution).
 
 L'assistant `setup` peut être relancé n'importe quand (changement de dossier,
-nouvelle boîte) : il ne touche que la boîte choisie et la liste des dossiers,
+nouvelle boîte) : `venv\Scripts\python -m backup_monitor setup` ou
+`lancer.bat setup`. Il ne touche que la boîte choisie et la liste des dossiers,
 le reste de `config.yaml` est préservé.
 
 ## Utilisation depuis une clé USB
@@ -53,6 +63,11 @@ Copier ce dossier sur la clé, puis sur n'importe quel poste :
 **double-cliquer `lancer.bat`** — sans argument il analyse puis ouvre le
 tableau ; avec un argument il le transmet (`lancer.bat setup`,
 `lancer.bat diagnose`, `lancer.bat selftest`…).
+
+**Première utilisation sur un poste** : si aucun dossier n'est encore choisi,
+`lancer.bat` (sans argument) crée l'environnement puis **enchaîne directement
+sur l'assistant de configuration** avant de relancer l'analyse — pas de message
+d'erreur à déchiffrer, on est guidé vers le choix des dossiers.
 
 - **Tout ce qui vous appartient reste sur la clé** : le code, `config.yaml`,
   le tableau `tableau-backups.html` et le journal `backup-monitor.log`. La
@@ -177,6 +192,7 @@ Sous Linux, `install.sh` et `systemd/installer-timer.sh` couvrent ce scénario.
 
 | Symptôme | Piste |
 |---|---|
+| `aucun dossier à surveiller n'est défini` | Configuration pas encore faite (pas une panne) : lancer `lancer.bat setup` — au double-clic, `lancer.bat` et `install.bat` enchaînent désormais l'assistant automatiquement |
 | `Dossier Outlook introuvable` | `python -m backup_monitor folders` pour les chemins exacts (attention aux noms français : « Boîte de réception ») |
 | La boîte n'est pas celle par défaut | Renseigner `outlook.store` avec le nom exact du magasin affiché dans Outlook |
 | Fenêtre de sécurité Outlook au lancement | Normal si un antivirus restreint l'accès programmatique ; l'outil ne fait que lire — autoriser l'accès |

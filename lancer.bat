@@ -40,15 +40,53 @@ if errorlevel 1 (
 )
 
 cd /d "%PROJET%"
-if "%~1"=="" (
-  "%PY%" -m backup_monitor run
-  if errorlevel 1 goto :erreur
-  if exist "%PROJET%tableau-backups.html" start "" "%PROJET%tableau-backups.html"
-) else (
+
+rem Avec arguments : passes tels quels (setup, diagnose, selftest, run...).
+rem  errorlevel 3 = pas encore configure (message deja affiche par l'outil) ;
+rem  errorlevel 1-2 = vraie erreur.  On teste le plus grand seuil d'abord.
+if not "%~1"=="" (
   "%PY%" -m backup_monitor %*
+  if errorlevel 3 goto :config_a_finir
   if errorlevel 1 goto :erreur
+  goto :fin
 )
+
+rem Sans argument : analyse puis ouverture du tableau.
+"%PY%" -m backup_monitor run
+set "RC=%errorlevel%"
+if "%RC%"=="3" goto :configurer
+if not "%RC%"=="0" goto :erreur
+goto :ouvrir
+
+:configurer
+rem Code 3 = premiere utilisation : aucun dossier a surveiller n'est defini.
+rem Ce n'est pas une panne -- on lance l'assistant puis on relance l'analyse.
+echo.
+echo Premiere utilisation : aucun dossier a surveiller n'est encore defini.
+echo Lancement de l'assistant de configuration...
+echo.
+"%PY%" -m backup_monitor setup
+if errorlevel 1 goto :config_a_finir
+echo.
+echo Configuration enregistree. Nouvelle analyse...
+"%PY%" -m backup_monitor run
+set "RC=%errorlevel%"
+if "%RC%"=="3" goto :config_a_finir
+if not "%RC%"=="0" goto :erreur
+
+:ouvrir
+if exist "%PROJET%tableau-backups.html" start "" "%PROJET%tableau-backups.html"
+
+:fin
 endlocal
+exit /b 0
+
+:config_a_finir
+echo.
+echo Configuration non terminee. Relancez ce programme pour reessayer,
+echo ou lancez directement l'assistant :  lancer.bat setup
+echo.
+pause
 exit /b 0
 
 :erreur
