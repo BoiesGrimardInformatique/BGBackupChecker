@@ -1,0 +1,13 @@
+[Unit]
+Description=Analyse des courriels de backup (Macrium/Retrospect) — lecture seule
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__PROJET__
+ExecStart=__PROJET__/venv/bin/python -m backup_monitor run
+# Durcissement : aucun besoin d'écrire ailleurs que dans le dossier du projet
+ProtectSystem=strict
+ReadWritePaths=__PROJET__
+PrivateTmp=true
+NoNewPrivileges=true

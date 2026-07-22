@@ -1,0 +1,144 @@
+# Configuration de backup-monitor — copier vers config.yaml.
+# Méthode « outlook » (recommandée sur le poste Windows 11) : AUCUN mot de
+# passe nécessaire, l'outil lit directement le Outlook local, en lecture seule.
+
+exchange:
+  # Méthode d'accès :
+  #   outlook = lit le Outlook installé sur ce poste (Windows, recommandé)
+  #   ews / imap = accès serveur direct (voir requirements-exchange.txt)
+  method: outlook
+  # --- Champs ci-dessous requis SEULEMENT pour ews/imap ---
+  email: ""
+  username: ""
+  auth: ntlm
+  ews_url: ""
+  verify_ssl: true
+
+outlook:
+  # Nom du magasin (la boîte) tel qu'affiché dans le volet Outlook, ex.
+  # "backups@exemple.local". Laisser vide = boîte par défaut du profil.
+  store: ""
+
+imap:
+  server: ""
+  port: 993
+  ssl: true
+
+# Dossiers Outlook à analyser (chemins séparés par « / »).
+# Laisser vide et lancer « python -m backup_monitor setup » : l'outil scanne
+# les boîtes/dossiers disponibles et vous fait choisir interactivement.
+# La boîte n'est JAMAIS modifiée : lecture seule, les courriels restent non lus.
+folders:
+  macrium: []
+  retrospect: []
+  # Exemple de saisie manuelle :
+  # macrium:
+  #   - "Boîte de réception/Backups/Macrium"
+
+analysis:
+  # Fenêtre d'analyse : nombre de jours de courriels relus à chaque exécution
+  days_back: 14
+  timezone: America/Toronto
+
+# Lecture des pièces jointes — DÉSACTIVÉE par défaut. Sécurité multicouche :
+# jamais exécutées, jamais ouvertes par une application, jamais rendues,
+# uniquement si TOUTES ces conditions sont réunies :
+#   - expéditeur dans allowed_senders (adresse exacte, ou "@domaine.local") ;
+#   - extension dans allowed_extensions ;
+#   - taille <= max_kb ;
+#   - contenu conforme (binaire déguisé en .txt/.html rejeté ; un .pdf doit
+#     réellement commencer par %PDF).
+# Traitement par type : texte lu tel quel ; HTML réduit à son texte (scripts
+# et balises supprimés, jamais rendu) ; PDF : texte extrait par pypdf dans un
+# sous-processus à délai maximal (jamais ouvert dans un lecteur PDF).
+attachments:
+  enabled: false
+  allowed_senders: []
+  #  - "backup@exemple.local"
+  #  - "@exemple.local"          # tout le domaine
+  allowed_extensions: [".txt", ".log", ".htm", ".html", ".pdf"]
+  max_kb: 4096
+
+# Clients — lie les postes/serveurs à un client pour le suivi par client
+# (vue résumé, colonne et filtre Client dans le tableau). « machines » est une
+# liste d'expressions régulières (insensibles à la casse) testées sur la
+# machine extraite, le sujet et le nom de tâche de chaque courriel.
+clients: []
+#  - name: "Clinique Vertika"
+#    machines: ["VERTIKA-.*", "SRV-VERT"]
+#  - name: "Comptable Plus"
+#    machines: ["SRV-COMPTA"]
+
+# Tâches de sauvegarde attendues — permet de détecter les backups MANQUANTS
+# (aucun courriel reçu dans la fenêtre attendue), pas seulement ceux en erreur.
+# "match" est une expression régulière testée sur sujet + machine + tâche.
+expected_jobs:
+  - name: "SRV-FICHIERS — Image Macrium quotidienne"
+    product: macrium
+    match: "SRV-FICHIERS"
+    every_hours: 24    # fréquence attendue
+    grace_hours: 6     # tolérance avant de déclarer « manquant »
+    # client: "Nom du client"   # optionnel — sinon déduit du dernier courriel
+  - name: "Retrospect — Sauvegarde postes"
+    product: retrospect
+    match: "Sauvegarde postes"
+    every_hours: 24
+    grace_hours: 6
+
+report:
+  # Fichier HTML généré (relatif au dossier du projet, ou chemin absolu)
+  output: "tableau-backups.html"
+  # Auto-actualisation de la page dans le navigateur (secondes)
+  refresh_seconds: 300
+  # Nombre max de courriels listés dans le tableau détaillé
+  max_rows: 100
+
+# Motifs de détection (expressions régulières).
+# Ordre d'évaluation : erreur > avertissement > succès. À CALIBRER avec de
+# vrais courriels — les valeurs ci-dessous couvrent les formats usuels EN/FR.
+parsers:
+  macrium:
+    failure:
+      - "(?i)backup aborted"
+      - "(?i)clone aborted"
+      - "(?i)\\bfailed\\b"
+      - "(?i)échou"
+      - "(?i)errors?\\s*[:=]\\s*[1-9]"
+    warning:
+      - "(?i)completed with warnings"
+      - "(?i)warnings?\\s*[:=]\\s*[1-9]"
+      - "(?i)avertissement"
+    success:
+      - "(?i)completed successfully"
+      - "(?i)backup completed"
+      - "(?i)réussi"
+      - "(?i)succès"
+    extract:
+      # groupe 1 = valeur extraite ; testé sur le sujet puis le corps
+      machine:
+        - "(?i)computer[\\s:]+([A-Za-z0-9._-]+)"
+        - "(?i)ordinateur[\\s:]+([A-Za-z0-9._-]+)"
+      job:
+        - "(?i)backup definition[\\s:'\"]+([^'\"\\r\\n]+)"
+        - "(?i)définition[\\s:'\"]+([^'\"\\r\\n]+)"
+  retrospect:
+    failure:
+      - "(?i)\\bfailed\\b"
+      - "(?i)[ée]chec"
+      - "(?i)\\berror -?\\d+"
+      - "(?i)\\berreur -?\\d+"
+      - "(?im)^!"
+    warning:
+      - "(?i)with warnings"
+      - "(?i)avertissement"
+    success:
+      - "(?i)completed successfully"
+      - "(?i)terminé(e)? avec succès"
+      - "(?i)normal execution"
+      - "(?i)exécution normale"
+    extract:
+      machine:
+        - "(?i)from ([A-Za-z0-9._-]+)"
+        - "(?i)de ([A-Za-z0-9._-]+)"
+      job:
+        - "[Ss]cript\\s+[«\"']([^»\"']+)"

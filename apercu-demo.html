@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="300">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sauvegardes — Macrium &amp; Retrospect</title>
+<style>
+:root { color-scheme: light dark; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--page); color: var(--ink); padding: 24px;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e;
+  --muted: #898781; --grid: #e1e0d9; --ring: rgba(11,11,11,0.10);
+  --wash: rgba(11,11,11,0.045);
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  body {
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --ring: rgba(255,255,255,0.10);
+    --wash: rgba(255,255,255,0.06);
+  }
+}
+main { max-width: 1160px; margin: 0 auto; }
+h1 { font-size: 1.25rem; font-weight: 650; }
+h2 { font-size: 0.95rem; font-weight: 600; margin: 28px 0 10px; }
+.meta { color: var(--ink-2); font-size: 0.82rem; margin-top: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem;
+        border: 1px solid var(--ring); border-radius: 999px; padding: 2px 10px;
+        color: var(--ink-2); background: var(--surface); }
+.chip.stale { border-color: var(--serious); color: var(--ink); }
+.chip.dead { border-color: var(--critical); color: var(--ink); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+         gap: 12px; margin-top: 18px; }
+.tile { background: var(--surface); border: 1px solid var(--ring);
+        border-radius: 10px; padding: 14px 16px; text-align: left;
+        font: inherit; color: inherit; cursor: pointer; }
+.tile:hover { background: var(--wash); }
+.tile:focus-visible { outline: 2px solid var(--ink-2); outline-offset: 2px; }
+.tile .num { font-size: 1.9rem; font-weight: 650; line-height: 1.2; }
+.tile .lbl { font-size: 0.82rem; color: var(--ink-2); margin-top: 2px;
+             display: flex; align-items: center; gap: 6px; }
+.tile.alert { border-color: var(--critical); border-width: 2px; }
+.tile[aria-pressed="true"] { outline: 2px solid var(--ink-2); outline-offset: -2px; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+           margin: 0 0 10px; }
+.seg { display: inline-flex; border: 1px solid var(--ring); border-radius: 8px;
+       overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 0.8rem; color: var(--ink-2);
+              background: none; border: none; padding: 5px 11px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--grid); }
+.seg button:hover { background: var(--wash); }
+.seg button[aria-pressed="true"] { background: var(--wash); color: var(--ink);
+                                   font-weight: 600; }
+.filters input[type="search"], .filters select {
+  font: inherit; font-size: 0.8rem; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--ring); border-radius: 8px;
+  padding: 5px 10px; }
+.filters input[type="search"] { min-width: 220px; }
+.filters .count { font-size: 0.78rem; color: var(--muted); margin-left: auto; }
+
+.wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--ring);
+        border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+th { text-align: left; font-weight: 600; color: var(--ink-2); padding: 9px 12px;
+     border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+td.dt { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-2); }
+tbody tr.row:hover { background: var(--wash); }
+tr.accent-critical td:first-child { box-shadow: inset 3px 0 0 var(--critical); }
+tr.accent-serious td:first-child { box-shadow: inset 3px 0 0 var(--serious); }
+
+.badge { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.badge .ic { font-weight: 700; }
+.c-good .ic { color: var(--good); } .c-warning .ic { color: var(--warning); }
+.c-serious .ic { color: var(--serious); } .c-critical .ic { color: var(--critical); }
+.c-muted .ic { color: var(--muted); }
+
+button.expander { font: inherit; font-size: 0.8rem; line-height: 1;
+  background: none; border: 1px solid var(--ring); border-radius: 6px;
+  color: var(--ink-2); width: 24px; height: 24px; cursor: pointer; }
+button.expander:hover { background: var(--wash); }
+button.expander[aria-expanded="true"] { transform: rotate(90deg); }
+tr.detail td { background: var(--wash); font-size: 0.82rem; }
+tr.detail dl { display: grid; grid-template-columns: max-content 1fr;
+               gap: 4px 14px; }
+tr.detail dt { color: var(--muted); }
+tr.detail dd { color: var(--ink-2); overflow-wrap: anywhere; }
+tr.detail code { font-size: 0.78rem; background: var(--surface);
+                 border: 1px solid var(--ring); border-radius: 4px;
+                 padding: 0 4px; }
+#clients-resume tbody tr { cursor: pointer; }
+#clients-resume td.n { font-variant-numeric: tabular-nums; text-align: right; }
+#clients-resume th.n { text-align: right; }
+.note { color: var(--muted); font-size: 0.78rem; margin-top: 24px; }
+.empty { padding: 14px; color: var(--muted); font-size: 0.85rem; }
+.banner { border: 1px solid var(--serious); border-left-width: 4px;
+          background: var(--surface); border-radius: 8px;
+          padding: 10px 14px; margin-top: 16px; font-size: 0.85rem; }
+.banner ul { margin: 6px 0 0 18px; color: var(--ink-2); }
+@media print { .filters, .chip, button.expander { display: none; }
+               tr.detail { display: none; } body { padding: 0; } }
+</style>
+</head>
+<body>
+<main>
+<h1>État des sauvegardes — Macrium &amp; Retrospect</h1>
+<p class="meta">
+<span class="chip" id="fresh"><span class="ic">●</span>
+généré 2026-07-22 10:30 · <span class="rel"></span></span>
+&nbsp;fenêtre d'analyse : 14 jours · page actualisée toutes les
+5 min · 27 courriels analysés</p>
+
+<div class="tiles"><button class="tile alert" data-etat="erreur" aria-pressed="false" title="Filtrer les courriels sur cet état"><div class="num">1</div><div class="lbl c-critical"><span class="ic">✕</span>Erreurs</div></button><button class="tile" data-etat="avertissement" aria-pressed="false" title="Filtrer les courriels sur cet état"><div class="num">0</div><div class="lbl c-warning"><span class="ic">⚠</span>Avertissements</div></button><button class="tile" data-cible="taches" title="Voir les tâches attendues"><div class="num">1</div><div class="lbl c-serious"><span class="ic">⏱</span>Manquants</div></button><button class="tile" data-etat="succes" aria-pressed="false" title="Filtrer les courriels sur cet état"><div class="num">2</div><div class="lbl c-good"><span class="ic">✓</span>Succès</div></button></div><p class="meta">Comptes basés sur l&#x27;état courant des tâches attendues. Cliquer une tuile pour filtrer les courriels.</p>
+<h2>Vue par client</h2><div class="wrap" id="clients-resume"><table><thead><tr><th>Client</th><th>Pire état</th><th class="n">Erreurs</th><th class="n">Manquants</th><th class="n">Avert.</th><th class="n">Succès</th></tr></thead><tbody><tr class="accent-critical" data-client="Comptable Plus" tabindex="0" title="Filtrer les courriels sur ce client"><td>Comptable Plus</td><td><span class="badge c-critical"><span class="ic">✕</span>Erreur</span></td><td class="n">1</td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr><tr class="accent-serious" data-client="MSI interne" tabindex="0" title="Filtrer les courriels sur ce client"><td>MSI interne</td><td><span class="badge c-serious"><span class="ic">⏱</span>Manquant</span></td><td class="n">0</td><td class="n">1</td><td class="n">0</td><td class="n">1</td></tr><tr data-client="Clinique Vertika" tabindex="0" title="Filtrer les courriels sur ce client"><td>Clinique Vertika</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">1</td></tr></tbody></table></div><p class="meta">Basée sur les tâches attendues. Cliquer un client pour filtrer les courriels.</p>
+<h2 id="taches">État par tâche attendue</h2>
+<div class="wrap"><table><thead><tr><th>Tâche</th><th>Client</th><th>Produit</th><th>État</th><th>Dernier courriel</th><th>Détail</th></tr></thead><tbody><tr><td>SRV-FICHIERS — Image Macrium quotidienne</td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td class="dt" data-ts="1784712609350" title="2026-07-22 05:30">2026-07-22 05:30<br><span class="rel"></span></td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="accent-critical"><td>SRV-COMPTA — Image Macrium quotidienne</td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-critical"><span class="ic">✕</span>Erreur</span></td><td class="dt" data-ts="1784705409350" title="2026-07-22 03:30">2026-07-22 03:30<br><span class="rel"></span></td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr><td>Retrospect — Sauvegarde postes</td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td class="dt" data-ts="1784698209350" title="2026-07-22 01:30">2026-07-22 01:30<br><span class="rel"></span></td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="accent-serious"><td>Retrospect — Sauvegarde serveur courriel</td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-serious"><span class="ic">⏱</span>Manquant</span></td><td class="dt" data-ts="1784471409350" title="2026-07-19 10:30">2026-07-19 10:30<br><span class="rel"></span></td><td>dernier courriel il y a 72 h (attendu toutes les 24 h)</td></tr></tbody></table></div>
+<h2>Courriels analysés</h2>
+<div class="filters"><div class="seg" role="group"><button data-cle="produit" data-valeur="tous" aria-pressed="false">Tous</button><button data-cle="produit" data-valeur="macrium" aria-pressed="false">Macrium</button><button data-cle="produit" data-valeur="retrospect" aria-pressed="false">Retrospect</button></div><div class="seg" role="group"><button data-cle="etat" data-valeur="tous" aria-pressed="false">Tous</button><button data-cle="etat" data-valeur="erreur" aria-pressed="false">Erreur</button><button data-cle="etat" data-valeur="avertissement" aria-pressed="false">Avert.</button><button data-cle="etat" data-valeur="succes" aria-pressed="false">Succès</button><button data-cle="etat" data-valeur="inconnu" aria-pressed="false">Inconnu</button></div><select id="filtre-client" aria-label="Filtrer par client"><option value="tous">Tous les clients</option><option value="Clinique Vertika">Clinique Vertika</option><option value="Comptable Plus">Comptable Plus</option><option value="MSI interne">MSI interne</option><option value="(non assigné)">(non assigné)</option></select><input type="search" id="recherche" placeholder="Client, machine, tâche, sujet…" aria-label="Recherche dans les courriels"><span class="count" id="nb-affiches"></span></div>
+<div class="wrap" id="mails"><table><thead><tr><th aria-label="Détail"></th><th>Reçu</th><th>Client</th><th>Produit</th><th>État</th><th>Machine</th><th>Tâche</th><th>Sujet</th></tr></thead><tbody><tr class="row" data-produit="retrospect" data-etat="inconnu" data-client="(non assigné)" data-texte="retrospect: message étrange   retrospect@msi.local backups/retrospect "><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784719809350" title="2026-07-22 07:30">2026-07-22 07:30<br><span class="rel"></span></td><td>—</td><td>Retrospect</td><td><span class="badge c-muted"><span class="ic">?</span>Inconnu</span></td><td>—</td><td>—</td><td>Retrospect: message étrange</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd>aucun motif reconnu — à calibrer dans config.yaml (parsers)</dd><dt>Extrait</dt><dd>Contenu inhabituel sans mot-clé connu.</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784712609350" title="2026-07-22 05:30">2026-07-22 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row accent-critical" data-produit="macrium" data-etat="erreur" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784705409350" title="2026-07-22 03:30">2026-07-22 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-critical"><span class="ic">✕</span>Erreur</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)backup aborted</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Backup aborted - Destination drive not found Errors: 1</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784698209350" title="2026-07-22 01:30">2026-07-22 01:30<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed successfully. Duration: 01:12:44. Performance: 320 MB/min.</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784626209350" title="2026-07-21 05:30">2026-07-21 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row accent-critical" data-produit="macrium" data-etat="erreur" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784619009350" title="2026-07-21 03:30">2026-07-21 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-critical"><span class="ic">✕</span>Erreur</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)backup aborted</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Backup aborted - Destination drive not found Errors: 1</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="avertissement" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784611809350" title="2026-07-21 01:30">2026-07-21 01:30<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-warning"><span class="ic">⚠</span>Avertissement</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)with warnings</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed with warnings. 1 fichier occupé n&#x27;a pas pu être copié. Avertissement.</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784610789350" title="2026-07-21 01:13">2026-07-21 01:13<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed successfully. Duration: 01:01:12.</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784539809350" title="2026-07-20 05:30">2026-07-20 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784532609350" title="2026-07-20 03:30">2026-07-20 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Result: Backup completed successfully Errors: 0</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784524389350" title="2026-07-20 01:13">2026-07-20 01:13<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed successfully. Duration: 01:02:12.</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde serveur courriel retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784471409350" title="2026-07-19 10:30">2026-07-19 10:30<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde serveur courriel</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde serveur courriel&quot; completed successfully.</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784453409350" title="2026-07-19 05:30">2026-07-19 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784446209350" title="2026-07-19 03:30">2026-07-19 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Result: Backup completed successfully Errors: 0</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784437989350" title="2026-07-19 01:13">2026-07-19 01:13<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed successfully. Duration: 01:03:12.</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784367009350" title="2026-07-18 05:30">2026-07-18 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row accent-critical" data-produit="macrium" data-etat="erreur" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784359809350" title="2026-07-18 03:30">2026-07-18 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-critical"><span class="ic">✕</span>Erreur</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)backup aborted</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Backup aborted - Destination drive not found Errors: 1</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784351589350" title="2026-07-18 01:13">2026-07-18 01:13<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed successfully. Duration: 01:04:12.</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784280609350" title="2026-07-17 05:30">2026-07-17 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784273409350" title="2026-07-17 03:30">2026-07-17 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Result: Backup completed successfully Errors: 0</dd></dl></td></tr><tr class="row accent-critical" data-produit="retrospect" data-etat="erreur" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784265189350" title="2026-07-17 01:13">2026-07-17 01:13<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-critical"><span class="ic">✕</span>Erreur</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)\bfailed\b</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; failed during automatic execution, error -530 (backup client not found)</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784194209350" title="2026-07-16 05:30">2026-07-16 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784187009350" title="2026-07-16 03:30">2026-07-16 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Result: Backup completed successfully Errors: 0</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784178789350" title="2026-07-16 01:13">2026-07-16 01:13<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed successfully. Duration: 01:06:12.</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Clinique Vertika" data-texte="macrium reflect backup - srv-fichiers srv-fichiers image quotidienne c: backup@msi.local backups/macrium clinique vertika"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784107809350" title="2026-07-15 05:30">2026-07-15 05:30<br><span class="rel"></span></td><td>Clinique Vertika</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-FICHIERS</td><td>Image quotidienne C:</td><td>Macrium Reflect Backup - SRV-FICHIERS</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne C: Computer: SRV-FICHIERS Result: Backup completed successfully Errors: 0 Warnings: 0</dd></dl></td></tr><tr class="row" data-produit="macrium" data-etat="succes" data-client="Comptable Plus" data-texte="macrium reflect backup - srv-compta srv-compta image quotidienne d: backup@msi.local backups/macrium comptable plus"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784100609350" title="2026-07-15 03:30">2026-07-15 03:30<br><span class="rel"></span></td><td>Comptable Plus</td><td>Macrium</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-COMPTA</td><td>Image quotidienne D:</td><td>Macrium Reflect Backup - SRV-COMPTA</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>backup@msi.local</dd><dt>Dossier</dt><dd>Backups/Macrium</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Backup Definition: Image quotidienne D: Computer: SRV-COMPTA Result: Backup completed successfully Errors: 0</dd></dl></td></tr><tr class="row" data-produit="retrospect" data-etat="succes" data-client="MSI interne" data-texte="retrospect notification from srv-backup srv-backup sauvegarde postes retrospect@msi.local backups/retrospect msi interne"><td><button class="expander" aria-expanded="false" title="Afficher le détail">▸</button></td><td class="dt" data-ts="1784092389350" title="2026-07-15 01:13">2026-07-15 01:13<br><span class="rel"></span></td><td>MSI interne</td><td>Retrospect</td><td><span class="badge c-good"><span class="ic">✓</span>Succès</span></td><td>SRV-BACKUP</td><td>Sauvegarde postes</td><td>Retrospect notification from SRV-BACKUP</td></tr><tr class="detail" hidden><td colspan="8"><dl><dt>Expéditeur</dt><dd>retrospect@msi.local</dd><dt>Dossier</dt><dd>Backups/Retrospect</dd><dt>Motif déclencheur</dt><dd><code>(?i)completed successfully</code></dd><dt>Extrait</dt><dd>Script &quot;Sauvegarde postes&quot; completed successfully. Duration: 01:07:12.</dd></dl></td></tr></tbody></table></div>
+<p class="note">Lecture seule : aucun courriel n'est modifié, déplacé ni marqué
+comme lu dans Outlook/Exchange. Fichier local — aucune donnée n'est publiée.</p>
+</main>
+<script>
+var GEN_TS = 1784730609353;
+var REFRESH_MS = 300000;
+
+(function () {
+  'use strict';
+  var MIN = 60000;
+
+  // --- Heures relatives ------------------------------------------------
+  function rel(ts) {
+    var d = Date.now() - ts;
+    if (d < MIN) return "à l'instant";
+    var m = Math.round(d / MIN);
+    if (m < 60) return 'il y a ' + m + ' min';
+    var h = Math.floor(m / 60);
+    if (h < 48) return 'il y a ' + h + ' h' + (m % 60 ? ' ' + (m % 60) : '');
+    return 'il y a ' + Math.round(h / 24) + ' j';
+  }
+  function tickRel() {
+    document.querySelectorAll('[data-ts]').forEach(function (el) {
+      el.querySelector('.rel').textContent = rel(+el.dataset.ts);
+    });
+  }
+
+  // --- Fraîcheur du fichier généré --------------------------------------
+  function tickFresh() {
+    var el = document.getElementById('fresh');
+    var age = Date.now() - GEN_TS;
+    el.querySelector('.rel').textContent = rel(GEN_TS);
+    el.classList.remove('stale', 'dead');
+    if (age > REFRESH_MS * 6) {
+      el.classList.add('dead');
+      el.querySelector('.ic').textContent = '✕';
+      el.title = 'Le fichier ne se régénère plus — vérifier la tâche planifiée.';
+    } else if (age > REFRESH_MS * 2.5) {
+      el.classList.add('stale');
+      el.querySelector('.ic').textContent = '⚠';
+      el.title = 'Données possiblement périmées.';
+    }
+  }
+
+  // --- Filtres ----------------------------------------------------------
+  var state = { produit: 'tous', etat: 'tous', client: 'tous', q: '' };
+  try {
+    var saved = JSON.parse(localStorage.getItem('bm-filtres') || '{}');
+    if (saved.produit) state.produit = saved.produit;
+    if (saved.etat) state.etat = saved.etat;
+    if (saved.client) state.client = saved.client;
+    if (typeof saved.q === 'string') state.q = saved.q;
+  } catch (e) {}
+
+  function apply() {
+    try { localStorage.setItem('bm-filtres', JSON.stringify(state)); }
+    catch (e) {}
+    var shown = 0;
+    document.querySelectorAll('#mails tbody tr.row').forEach(function (tr) {
+      var ok = (state.produit === 'tous' || tr.dataset.produit === state.produit)
+        && (state.etat === 'tous' || tr.dataset.etat === state.etat)
+        && (state.client === 'tous' || tr.dataset.client === state.client)
+        && (!state.q || tr.dataset.texte.indexOf(state.q) !== -1);
+      tr.hidden = !ok;
+      var det = tr.nextElementSibling;
+      if (det && det.classList.contains('detail') && !ok) {
+        det.hidden = true;
+        tr.querySelector('.expander').setAttribute('aria-expanded', 'false');
+      }
+      if (ok) shown++;
+    });
+    document.getElementById('nb-affiches').textContent =
+      shown + ' courriel' + (shown > 1 ? 's' : '') + ' affiché' + (shown > 1 ? 's' : '');
+    document.querySelectorAll('.seg button').forEach(function (b) {
+      b.setAttribute('aria-pressed',
+        String(state[b.dataset.cle] === b.dataset.valeur));
+    });
+    document.querySelectorAll('.tile[data-etat]').forEach(function (t) {
+      t.setAttribute('aria-pressed', String(state.etat === t.dataset.etat));
+    });
+  }
+
+  document.querySelectorAll('.seg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      state[b.dataset.cle] = b.dataset.valeur;
+      apply();
+    });
+  });
+  var champ = document.getElementById('recherche');
+  champ.value = state.q;
+  champ.addEventListener('input', function () {
+    state.q = champ.value.trim().toLowerCase();
+    apply();
+  });
+  var selClient = document.getElementById('filtre-client');
+  if (selClient) {
+    selClient.value = state.client;
+    if (selClient.value !== state.client) { state.client = 'tous'; }
+    selClient.addEventListener('change', function () {
+      state.client = selClient.value;
+      apply();
+    });
+  }
+
+  // Vue par client : cliquer une ligne filtre les courriels sur ce client.
+  document.querySelectorAll('#clients-resume tbody tr').forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      state.client = (state.client === tr.dataset.client)
+        ? 'tous' : tr.dataset.client;
+      if (selClient) selClient.value = state.client;
+      apply();
+      document.getElementById('mails').scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+
+  // Tuiles KPI : filtrent le tableau des courriels ; « Manquants » mène aux tâches.
+  document.querySelectorAll('.tile[data-etat]').forEach(function (t) {
+    t.addEventListener('click', function () {
+      state.etat = (state.etat === t.dataset.etat) ? 'tous' : t.dataset.etat;
+      apply();
+      document.getElementById('mails').scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+  var tuileManquants = document.querySelector('.tile[data-cible]');
+  if (tuileManquants) {
+    tuileManquants.addEventListener('click', function () {
+      document.getElementById('taches').scrollIntoView({ behavior: 'smooth' });
+    });
+  }
+
+  // --- Détail dépliable ---------------------------------------------------
+  document.querySelectorAll('.expander').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var det = b.closest('tr').nextElementSibling;
+      var open = det.hidden;
+      det.hidden = !open;
+      b.setAttribute('aria-expanded', String(open));
+    });
+  });
+
+  tickRel(); tickFresh(); apply();
+  setInterval(function () { tickRel(); tickFresh(); }, MIN);
+})();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Dépendances SUPPLÉMENTAIRES, uniquement pour les méthodes « ews » ou « imap »
+# (accès serveur direct, sans Outlook local). Inutiles avec method: outlook.
+exchangelib>=5.4
+requests-ntlm>=1.2
+keyring>=25.0
