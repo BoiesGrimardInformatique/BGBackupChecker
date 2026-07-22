@@ -19,7 +19,7 @@ import time
 import traceback
 from datetime import datetime
 
-from . import STATUS_ERROR, STATUS_MISSING, STATUS_WARNING
+from . import STATUS_ERROR, STATUS_MISSING, STATUS_UNKNOWN, STATUS_WARNING
 from .parsers import DEFAULT_PATTERNS, analyze, job_states
 from .report import render, write
 
@@ -51,23 +51,30 @@ def _log(cfg, message: str) -> None:
         pass
 
 
-def _run_once(cfg, password) -> int:
+def _run_once(cfg, password, strict_unknown: bool = False) -> int:
     mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
     events = analyze(cfg, mails)
     states = job_states(cfg, events)
     out = write(cfg, render(cfg, events, states, fetch_errors))
     errors = sum(1 for e in events if e.status == STATUS_ERROR)
     warns = sum(1 for e in events if e.status == STATUS_WARNING)
+    unknown = sum(1 for e in events if e.status == STATUS_UNKNOWN)
     missing = sum(1 for s in states if s.status == STATUS_MISSING)
     summary = (f"{len(events)} courriels analysés — {errors} erreur(s), "
-               f"{warns} avertissement(s), {missing} tâche(s) manquante(s).")
+               f"{warns} avertissement(s), {unknown} inconnu(s), "
+               f"{missing} tâche(s) manquante(s).")
     print(summary)
     for err in fetch_errors:
         print(f"AVERTISSEMENT — dossier illisible : {err}", file=sys.stderr)
     print(f"Tableau : file://{out}")
-    _log(cfg, summary + (f" | dossiers en erreur : {len(fetch_errors)}"
+    # Détail des dossiers en erreur AUSSI dans le journal : sous pythonw
+    # (tâche planifiée), stderr n'est visible nulle part.
+    _log(cfg, summary + ("".join(f" | ILLISIBLE : {e}" for e in fetch_errors)
                          if fetch_errors else ""))
-    return errors + missing + len(fetch_errors)
+    problems = errors + missing + len(fetch_errors)
+    if strict_unknown:
+        problems += unknown
+    return problems
 
 
 def _diagnose(cfg, password) -> None:
@@ -126,6 +133,9 @@ def main() -> None:
                         help="boucle continue, une analyse toutes les N secondes")
     parser.add_argument("--fail-on-error", action="store_true",
                         help="code de sortie 1 si erreurs ou tâches manquantes")
+    parser.add_argument("--fail-on-unknown", action="store_true",
+                        help="avec --fail-on-error : les courriels non "
+                             "reconnus comptent aussi comme un problème")
     args = parser.parse_args()
 
     if args.command == "selftest":
@@ -190,7 +200,7 @@ def main() -> None:
         print(f"Mode continu : analyse toutes les {args.watch} s (Ctrl+C pour arrêter).")
         while True:
             try:
-                _run_once(cfg, password)
+                _run_once(cfg, password, args.fail_on_unknown)
             except KeyboardInterrupt:
                 raise
             except Exception:
@@ -205,7 +215,7 @@ def main() -> None:
                 return
     else:
         try:
-            problems = _run_once(cfg, password)
+            problems = _run_once(cfg, password, args.fail_on_unknown)
         except Exception:
             _log(cfg, "ERREUR : " + traceback.format_exc(limit=2)
                  .strip().replace("\n", " | "))

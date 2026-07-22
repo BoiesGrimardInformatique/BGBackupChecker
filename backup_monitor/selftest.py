@@ -128,6 +128,55 @@ def _checks() -> list[tuple[str, bool, str]]:
                   for e in other_ev),
               str([(e.product, e.status) for e in other_ev]))
 
+        # Correctifs de fiabilité du classement
+        fiab_mails = [
+            RawMail("Macrium Reflect - Backup Completed with Errors",
+                    "b@test.local", now,
+                    "Image of C: completed with errors.",
+                    "Backups/Macrium", "macrium"),
+            RawMail("SRV9 Macrium Reflect - Backup Success", "b@test.local",
+                    now, "Success :)\nFailure count: 0",
+                    "Backups/Macrium", "macrium"),
+            RawMail("Macrium Reflect Backup - avec journal joint",
+                    "b@test.local", now, "Backup completed successfully",
+                    "Backups/Macrium", "macrium",
+                    attachments_text="failed to read sector (retry ok)"),
+            RawMail("Rapport quotidien", "b@test.local", now,
+                    "Voir la pièce jointe.", "Backups/Macrium", "macrium",
+                    attachments_text="[Failed] job de nuit"),
+            RawMail("Macrium Reflect Backup - extraction", "b@test.local",
+                    now, "Computer Name: SRV-X\nBackup completed successfully",
+                    "Backups/Macrium", "macrium"),
+        ]
+        fiab_ev = {e.subject: e for e in analyze(cfg, fiab_mails)}
+        check("« Completed with Errors » classé en erreur",
+              fiab_ev["Macrium Reflect - Backup Completed with Errors"]
+              .status == STATUS_ERROR)
+        check("« Failure count: 0 » ne crée pas de fausse erreur",
+              fiab_ev["SRV9 Macrium Reflect - Backup Success"]
+              .status == STATUS_SUCCESS)
+        check("Un « failed » dans la pièce jointe ne renverse pas un succès",
+              fiab_ev["Macrium Reflect Backup - avec journal joint"]
+              .status == STATUS_SUCCESS)
+        check("Pièce jointe seule source : classement au 2e étage",
+              fiab_ev["Rapport quotidien"].status == STATUS_ERROR)
+        check("« Computer Name: X » extrait X (pas « Name »)",
+              fiab_ev["Macrium Reflect Backup - extraction"]
+              .machine == "SRV-X",
+              fiab_ev["Macrium Reflect Backup - extraction"].machine)
+
+        # Regex invalide dans expected_jobs : la tâche doit apparaître en
+        # erreur de configuration, jamais en faux vert (« matche tout »).
+        bad_cfg = {**cfg, "expected_jobs": [
+            {"name": "Regex cassée", "product": "macrium",
+             "match": "SRV-(", "every_hours": 24}]}
+        bad_states = job_states(bad_cfg, events)
+        check("Regex expected_jobs invalide → tâche en erreur de config",
+              len(bad_states) == 1
+              and bad_states[0].status == STATUS_ERROR
+              and "invalide" in bad_states[0].due_note,
+              str([(s.status, s.due_note) for s in bad_states]))
+
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
               not sender_allowed("pirate@evil.com", ["backup@test.local"]))
@@ -157,6 +206,7 @@ def _checks() -> list[tuple[str, bool, str]]:
                 ("Collecte partielle", "bandeau d'erreur de collecte"),
                 ("filtre-client", "filtre par client"),
                 ("data-ts", "heures relatives"),
+                ("Inconnus", "tuile des inconnus"),
                 ("expander", "détail dépliable")]:
             check(f"Tableau : {label}", needle in page)
         check("Tableau : aucun script externe",

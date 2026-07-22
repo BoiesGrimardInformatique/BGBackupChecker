@@ -22,10 +22,13 @@ DEFAULT_PATTERNS = {
         "failure": [
             r"(?i)backup aborted", r"(?i)clone aborted", r"(?i)\bfailed\b",
             r"(?i)échou", r"(?i)errors?\s*[:=]\s*[1-9]",
+            r"(?i)completed with errors", r"(?i)cancell?ed", r"(?i)annulé",
             # Modèle de notification intégré de Macrium Reflect (« <machine>
             # Macrium Reflect - Backup Failure » / « Failure Notification »,
-            # corps « Failed :( »).
-            r"(?i)\bfailure\b", r"(?i)failed\s*:\(",
+            # corps « Failed :( »). Motifs ancrés : un « Failure count: 0 »
+            # dans un rapport de succès ne doit pas passer pour une erreur.
+            r"(?i)backup\s+failure", r"(?i)clone\s+failure",
+            r"(?i)failure\s+notification", r"(?i)failed\s*:\(",
         ],
         "warning": [
             r"(?i)completed with warnings", r"(?i)warnings?\s*[:=]\s*[1-9]",
@@ -41,8 +44,10 @@ DEFAULT_PATTERNS = {
             r"(?i)success\s*:\)",
         ],
         "extract": {
-            "machine": [r"(?i)computer[\s:]+([A-Za-z0-9._-]+)",
-                        r"(?i)ordinateur[\s:]+([A-Za-z0-9._-]+)",
+            # « (?:\s+name)? » : sur « Computer Name: SRV-X », capturer
+            # SRV-X et non « Name ».
+            "machine": [r"(?i)computer(?:\s+name)?\s*:?\s+([A-Za-z0-9._-]+)",
+                        r"(?i)ordinateur\s*:?\s+([A-Za-z0-9._-]+)",
                         # Sujet type « SRV1(Backups) Macrium Reflect - ... » :
                         # le nom de machine précède « Macrium Reflect ».
                         r"^([A-Za-z0-9._+-]+)\s*(?:\([^)]*\))?\s*Macrium Reflect"],
@@ -60,7 +65,11 @@ DEFAULT_PATTERNS = {
             r"(?i)normal execution", r"(?i)exécution normale",
         ],
         "extract": {
-            "machine": [r"(?i)from ([A-Za-z0-9._-]+)", r"(?i)de ([A-Za-z0-9._-]+)"],
+            # « \bfrom\s+ » ancré ; l'ancien « de (…) » capturait n'importe
+            # quel mot après « de » dans un corps français (« de sauvegarde »,
+            # « de fichiers »…) et polluait l'association client.
+            "machine": [r"(?i)\bfrom\s+([A-Za-z0-9._-]+)",
+                        r"(?i)ordinateur\s+([A-Za-z0-9._-]+)"],
             "job": [r"[Ss]cript\s+[«\"']([^»\"']+)"],
         },
     },
@@ -199,29 +208,36 @@ def _detect_product(cfg: dict, text: str) -> str:
     return "macrium"
 
 
+def _classify_text(pats: dict, text: str) -> tuple[str, str]:
+    for key, st in _ORDER:
+        hit = _first_match(pats.get(key), text)
+        if hit:
+            return st, hit
+    return STATUS_UNKNOWN, ""
+
+
 def classify(cfg: dict, mail: RawMail) -> BackupEvent:
-    text = f"{mail.subject}\n{mail.body}\n{mail.attachments_text}"
+    text_mail = f"{mail.subject}\n{mail.body}"
     # Dossiers « auto » (mode client_folders) : le produit n'est pas connu du
     # dossier, on le détecte au contenu. Sinon on garde celui du dossier.
     product = mail.product
     if product not in _known_products(cfg):
-        product = _detect_product(cfg, text)
+        product = _detect_product(cfg, f"{text_mail}\n{mail.attachments_text}")
     pats = _patterns_for(cfg, product)
-    status, matched = STATUS_UNKNOWN, ""
-    for key, st in _ORDER:
-        hit = _first_match(pats.get(key), text)
-        if hit:
-            status, matched = st, hit
-            break
+    # Étage 1 — sujet + corps seulement : un « failed » historique dans un
+    # journal joint (« failed to read sector, retry ok ») ne doit pas
+    # renverser le verdict du courriel lui-même. Le filet générique couvre
+    # les courriels d'autres systèmes (mode client_folders).
+    status, matched = _classify_text(pats, text_mail)
     if status == STATUS_UNKNOWN:
-        # Aucun motif du produit détecté/assigné n'a matché : le courriel
-        # vient peut-être d'un autre système (mode client_folders). Filet de
-        # sécurité générique avant d'abandonner en « inconnu ».
-        for key, st in _ORDER:
-            hit = _first_match(GENERIC_PATTERNS.get(key), text)
-            if hit:
-                status, matched = st, hit
-                break
+        status, matched = _classify_text(GENERIC_PATTERNS, text_mail)
+    # Étage 2 — pièces jointes, seulement si le courriel seul reste inconnu
+    # (rapports dont tout le contenu utile est dans la pièce jointe).
+    if status == STATUS_UNKNOWN and mail.attachments_text:
+        status, matched = _classify_text(pats, mail.attachments_text)
+        if status == STATUS_UNKNOWN:
+            status, matched = _classify_text(GENERIC_PATTERNS,
+                                             mail.attachments_text)
     return BackupEvent(
         product=product,
         status=status,
@@ -281,16 +297,26 @@ def job_states(cfg: dict, events: list[BackupEvent]) -> list[JobState]:
     now = datetime.now(tz)
     states: list[JobState] = []
     for job in cfg.get("expected_jobs") or []:
+        name = str(job.get("name") or job.get("match") or "(tâche sans nom)")
         try:
             rx = re.compile(job.get("match", ""), re.IGNORECASE)
-        except re.error:
-            rx = None
+        except re.error as exc:
+            # Regex invalide : surtout ne PAS retomber sur « matche tout »
+            # (n'importe quel courriel du produit passerait pour la preuve
+            # que la tâche tourne = faux vert permanent). La tâche est
+            # affichée en erreur tant que la config n'est pas corrigée.
+            states.append(JobState(
+                name=name, product=job.get("product", "?"),
+                status=STATUS_ERROR, client=job.get("client", ""),
+                due_note=f"expected_jobs.match invalide ({exc}) — "
+                         "tâche NON surveillée, corriger config.yaml"))
+            continue
         last = None
         for ev in events:  # déjà triés du plus récent au plus ancien
             if ev.product != job.get("product"):
                 continue
             hay = f"{ev.subject} {ev.machine} {ev.job}"
-            if rx is None or rx.search(hay):
+            if rx.search(hay):
                 last = ev
                 break
         deadline = timedelta(hours=float(job.get("every_hours", 24))
@@ -298,18 +324,18 @@ def job_states(cfg: dict, events: list[BackupEvent]) -> list[JobState]:
         client = job.get("client") or (last.client if last else "")
         if last is None:
             states.append(JobState(
-                name=job["name"], product=job.get("product", "?"),
+                name=name, product=job.get("product", "?"),
                 status=STATUS_MISSING, client=client,
                 due_note="aucun courriel dans la fenêtre d'analyse"))
         elif now - last.received > deadline:
             hours = (now - last.received).total_seconds() / 3600
             states.append(JobState(
-                name=job["name"], product=job.get("product", "?"),
+                name=name, product=job.get("product", "?"),
                 status=STATUS_MISSING, last_event=last, client=client,
                 due_note=f"dernier courriel il y a {hours:.0f} h "
                          f"(attendu toutes les {job.get('every_hours', 24)} h)"))
         else:
             states.append(JobState(
-                name=job["name"], product=job.get("product", "?"),
+                name=name, product=job.get("product", "?"),
                 status=last.status, last_event=last, client=client))
     return states

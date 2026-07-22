@@ -121,11 +121,12 @@ def folder_tree(cfg: dict, password=None, store: str = "") -> list[dict]:
 
 
 def list_folders(cfg: dict, password=None) -> list[str]:
-    lines = []
-    for e in folder_tree(cfg, password):
-        count = f"  ({e['count']} éléments)" if e["count"] is not None else ""
-        lines.append(f"[{e['store']}] {e['path']}{count}")
-    return lines
+    # Limité à la boîte configurée (outlook.store) quand elle est connue :
+    # énumérer tout le profil (boîtes partagées, archives en ligne…) fige
+    # Outlook — même raison que le choix de boîte préalable du setup.
+    store = (cfg.get("outlook") or {}).get("store", "")
+    return [f"[{e['store']}] {e['path']}"
+            for e in folder_tree(cfg, password, store=store)]
 
 
 def _read_attachments(item, cfg: dict, sender: str) -> tuple[str, str]:
@@ -163,20 +164,25 @@ def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
         for path in paths or []:
             try:
                 folder = _resolve_folder(ns, path, store)
-                _read_items(cfg, folder, path, product, "", since, tz, mails)
+                skipped = _read_items(cfg, folder, path, product, "",
+                                      since, tz, mails)
+                if skipped:
+                    errors.append(f"[{product}] {path} : {skipped} "
+                                  "courriel(s) illisible(s) ignoré(s)")
             except Exception as exc:
                 errors.append(f"[{product}] {path} : {exc}")
     # Dossiers parents « auto » : chaque sous-dossier est un client.
     for parent in cfg.get("client_folders") or []:
         try:
-            _fetch_client_parent(cfg, ns, store, parent, since, tz, mails)
+            _fetch_client_parent(cfg, ns, store, parent, since, tz,
+                                 mails, errors)
         except Exception as exc:
             errors.append(f"[auto] {parent} : {exc}")
     return mails, errors
 
 
 def _fetch_client_parent(cfg, ns, store, parent_path, since, tz,
-                         mails: list[RawMail]) -> None:
+                         mails: list[RawMail], errors: list[str]) -> None:
     """Explore un dossier parent : chaque sous-dossier DIRECT est un client
     (son nom) ; le produit est détecté au contenu de chaque courriel."""
     parent = _resolve_folder(ns, parent_path, store)
@@ -192,14 +198,17 @@ def _fetch_client_parent(cfg, ns, store, parent_path, since, tz,
         except Exception:
             continue
         _walk_client(cfg, sub, f"{parent_path}/{client}", client,
-                     since, tz, mails)
+                     since, tz, mails, errors)
 
 
 def _walk_client(cfg, folder, path, client, since, tz,
-                 mails: list[RawMail]) -> None:
+                 mails: list[RawMail], errors: list[str]) -> None:
     """Lit un dossier client et ses éventuels sous-dossiers, tous rattachés au
     même client (le sous-dossier de premier niveau)."""
-    _read_items(cfg, folder, path, "auto", client, since, tz, mails)
+    skipped = _read_items(cfg, folder, path, "auto", client, since, tz, mails)
+    if skipped:
+        errors.append(f"[auto] {path} : {skipped} "
+                      "courriel(s) illisible(s) ignoré(s)")
     try:
         subs = list(folder.Folders)
     except Exception:
@@ -209,44 +218,56 @@ def _walk_client(cfg, folder, path, client, since, tz,
             name = sub.Name
         except Exception:
             continue
-        _walk_client(cfg, sub, f"{path}/{name}", client, since, tz, mails)
+        _walk_client(cfg, sub, f"{path}/{name}", client, since, tz,
+                     mails, errors)
 
 
 def _read_items(cfg, folder, path, product, client, since, tz,
-                mails: list[RawMail]) -> None:
+                mails: list[RawMail]) -> int:
     """Lit les courriels récents d'UN dossier (déjà résolu) et les ajoute à
     `mails`. `product` peut être « auto » (détecté ensuite au contenu) et
-    `client` le nom du dossier client (vide pour les dossiers par produit)."""
+    `client` le nom du dossier client (vide pour les dossiers par produit).
+    Retourne le nombre de courriels illisibles ignorés."""
     items = folder.Items
     items.Sort("[ReceivedTime]", True)  # du plus récent au plus ancien
+    skipped = 0
     for item in items:
-        if getattr(item, "Class", None) != OL_MAIL_ITEM:
-            continue
-        rt = item.ReceivedTime
+        # Isolation PAR COURRIEL : un seul élément corrompu (corps non
+        # téléchargé, propriété MAPI illisible…) ne doit pas faire classer
+        # tout le dossier « illisible » — ce qui créerait de faux
+        # « Manquants ». L'élément est ignoré et compté.
         try:
-            received = datetime.fromtimestamp(rt.timestamp(), tz)
-        except (OSError, OverflowError, ValueError):
-            continue
-        if received < since:
-            break  # items triés : tout le reste est plus ancien
-        sender = ""
-        try:
-            sender = item.SenderEmailAddress or item.SenderName or ""
-            if sender.startswith("/O="):  # adresse Exchange interne
-                sender = item.SenderName or sender
-        except Exception:
-            pass
-        att_text, att_note = _read_attachments(item, cfg, sender)
-        mails.append(
-            RawMail(
-                subject=item.Subject or "",
-                sender=sender,
-                received=received,
-                body=item.Body or "",
-                folder=path,
-                product=product,
-                client=client,
-                attachments_text=att_text,
-                attachments_note=att_note,
+            if getattr(item, "Class", None) != OL_MAIL_ITEM:
+                continue
+            rt = item.ReceivedTime
+            try:
+                received = datetime.fromtimestamp(rt.timestamp(), tz)
+            except (OSError, OverflowError, ValueError):
+                skipped += 1
+                continue
+            if received < since:
+                break  # items triés : tout le reste est plus ancien
+            sender = ""
+            try:
+                sender = item.SenderEmailAddress or item.SenderName or ""
+                if sender.startswith("/O="):  # adresse Exchange interne
+                    sender = item.SenderName or sender
+            except Exception:
+                pass
+            att_text, att_note = _read_attachments(item, cfg, sender)
+            mails.append(
+                RawMail(
+                    subject=item.Subject or "",
+                    sender=sender,
+                    received=received,
+                    body=item.Body or "",
+                    folder=path,
+                    product=product,
+                    client=client,
+                    attachments_text=att_text,
+                    attachments_note=att_note,
+                )
             )
-        )
+        except Exception:
+            skipped += 1
+    return skipped
