@@ -302,9 +302,13 @@ def _dt_cell(dt) -> str:
 
 
 def _tiles(counts: dict, basis: str) -> str:
+    # « Inconnus » visible au même niveau que les autres états : si Macrium
+    # change ses libellés après une mise à jour, des dizaines de courriels
+    # passent « inconnus » — ça doit se voir sans dérouler le tableau.
     order = [
         (STATUS_ERROR, "Erreurs"), (STATUS_WARNING, "Avertissements"),
-        (STATUS_MISSING, "Manquants"), (STATUS_SUCCESS, "Succès"),
+        (STATUS_MISSING, "Manquants"), (STATUS_UNKNOWN, "Inconnus"),
+        (STATUS_SUCCESS, "Succès"),
     ]
     tiles = []
     for status, label in order:

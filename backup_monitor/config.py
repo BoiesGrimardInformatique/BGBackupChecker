@@ -78,6 +78,13 @@ def load(path: str, require_folders: bool = True) -> dict:
                  "(valeurs possibles : outlook, ews, imap).")
     if method != "outlook" and not cfg["exchange"]["email"]:
         sys.exit("config.yaml : exchange.email est requis pour ews/imap.")
+    if method != "outlook" and not cfg["exchange"].get("verify_ssl", True):
+        print(
+            "AVERTISSEMENT : exchange.verify_ssl est désactivé — le serveur "
+            "ne sera pas authentifié (mot de passe exposé à un intercepteur). "
+            "Réservé aux tests.",
+            file=sys.stderr,
+        )
     if require_folders and not (
             any(cfg["folders"].get(p) for p in ("macrium", "retrospect"))
             or cfg.get("client_folders")):

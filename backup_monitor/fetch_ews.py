@@ -109,42 +109,52 @@ def fetch(cfg: dict, password: str) -> tuple[list[RawMail], list[str]]:
     for product, paths in cfg["folders"].items():
         for path in paths or []:
             try:
-                _fetch_folder(cfg, account, product, path, since, tz,
-                              fields, att_conf, mails)
+                skipped = _fetch_folder(cfg, account, product, path, since,
+                                        tz, fields, att_conf, mails)
+                if skipped:
+                    errors.append(f"[{product}] {path} : {skipped} "
+                                  "courriel(s) illisible(s) ignoré(s)")
             except Exception as exc:
                 errors.append(f"[{product}] {path} : {exc}")
     return mails, errors
 
 
 def _fetch_folder(cfg, account, product, path, since, tz, fields, att_conf,
-                  mails: list[RawMail]) -> None:
+                  mails: list[RawMail]) -> int:
     folder = _resolve_folder(account, path)
     qs = (
         folder.filter(datetime_received__gte=since)
         .only(*fields)
         .order_by("-datetime_received")
     )
+    skipped = 0
     for item in qs:
-        sender = ""
-        if item.sender:
-            sender = item.sender.email_address or item.sender.name or ""
-        att_text, att_note = "", ""
-        atts = [a for a in (item.attachments or [])
-                if isinstance(a, FileAttachment)]
-        allowed, att_note = att_mod.gate(att_conf, sender, bool(atts))
-        if allowed:
-            files = [(a.name or "", a.size or 0,
-                      lambda a=a: a.content) for a in atts]
-            att_text, att_note = att_mod.extract(files, att_conf)
-        mails.append(
-            RawMail(
-                subject=item.subject or "",
-                sender=sender,
-                received=item.datetime_received.astimezone(tz),
-                body=item.text_body or "",
-                folder=path,
-                product=product,
-                attachments_text=att_text,
-                attachments_note=att_note,
+        # Isolation PAR COURRIEL : un élément corrompu est ignoré et compté,
+        # sans faire classer tout le dossier « illisible ».
+        try:
+            sender = ""
+            if item.sender:
+                sender = item.sender.email_address or item.sender.name or ""
+            att_text, att_note = "", ""
+            atts = [a for a in (item.attachments or [])
+                    if isinstance(a, FileAttachment)]
+            allowed, att_note = att_mod.gate(att_conf, sender, bool(atts))
+            if allowed:
+                files = [(a.name or "", a.size or 0,
+                          lambda a=a: a.content) for a in atts]
+                att_text, att_note = att_mod.extract(files, att_conf)
+            mails.append(
+                RawMail(
+                    subject=item.subject or "",
+                    sender=sender,
+                    received=item.datetime_received.astimezone(tz),
+                    body=item.text_body or "",
+                    folder=path,
+                    product=product,
+                    attachments_text=att_text,
+                    attachments_note=att_note,
+                )
             )
-        )
+        except Exception:
+            skipped += 1
+    return skipped
