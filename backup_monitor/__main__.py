@@ -30,8 +30,10 @@ import time
 import traceback
 from datetime import datetime
 
+import unicodedata
+
 from . import (STATUS_ERROR, STATUS_MISSING, STATUS_UNKNOWN, STATUS_WARNING,
-               load_timezone)
+               fold_text, load_timezone)
 from . import history
 from . import notify
 from .parsers import DEFAULT_PATTERNS, analyze, job_states, suggest_jobs
@@ -150,32 +152,48 @@ def _run_once(cfg, password, strict_unknown: bool = False,
     return business, len(fetch_errors), out
 
 
+def _fold_map(text: str) -> tuple[str, list[int]]:
+    """Texte plié (minuscules sans accents) + correspondance vers les indices
+    du texte original — pour retrouver « échec » via « echec » tout en
+    affichant l'extrait original avec ses accents."""
+    chars: list[str] = []
+    idx: list[int] = []
+    for i, ch in enumerate(text):
+        for c in unicodedata.normalize("NFD", ch):
+            if not unicodedata.combining(c):
+                chars.append(c.lower())
+                idx.append(i)
+    return "".join(chars), idx
+
+
 def _context_excerpt(text: str, term: str, width: int = 110) -> str:
     """Extrait du texte autour de la première occurrence de `term`
-    (insensible à la casse), espaces normalisés — pour situer le mot-clé
-    sans imprimer tout le corps."""
-    i = text.lower().find(term.lower())
-    if i < 0:
+    (insensible à la casse et aux accents), espaces normalisés — pour situer
+    le mot-clé sans imprimer tout le corps."""
+    folded, idx = _fold_map(text)
+    i = folded.find(fold_text(term))
+    if i < 0 or not idx:
         return ""
-    start = max(0, i - width // 2)
-    frag = text[start:start + width + len(term)]
-    return re.sub(r"\s+", " ", frag).strip()
+    start = idx[max(0, i - width // 2)]
+    end = idx[min(len(idx) - 1, i + width // 2 + len(term))] + 1
+    return re.sub(r"\s+", " ", text[start:end]).strip()
 
 
 def _find(cfg, password, terms: list[str]) -> None:
     """Ressort les courriels de la fenêtre d'analyse contenant TOUS les
-    mots-clés donnés (insensible à la casse) — dans le sujet, le corps, le
-    texte des pièces jointes, le dossier, le client ou l'expéditeur — avec
-    un extrait autour du premier mot. « find VSS "Comptable Plus" » cible un
-    mot chez un client ; --days 60 élargit la fenêtre."""
+    mots-clés donnés (insensible à la casse et aux accents) — dans le sujet,
+    le corps, le texte des pièces jointes, le dossier, le client ou
+    l'expéditeur — avec un extrait autour du premier mot.
+    « find VSS "Comptable Plus" » cible un mot chez un client ; --days 60
+    élargit la fenêtre."""
     mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
     for err in fetch_errors:
         print(f"AVERTISSEMENT — dossier illisible : {err}", file=sys.stderr)
-    lows = [t.lower() for t in terms]
+    lows = [fold_text(t) for t in terms]
     hits = []
     for m in sorted(mails, key=lambda m: m.received, reverse=True):
-        hay = (f"{m.subject}\n{m.body}\n{m.attachments_text}\n"
-               f"{m.folder}\n{m.client}\n{m.sender}").lower()
+        hay = fold_text(f"{m.subject}\n{m.body}\n{m.attachments_text}\n"
+                        f"{m.folder}\n{m.client}\n{m.sender}")
         if all(t in hay for t in lows):
             hits.append(m)
     quoted = ", ".join(f"« {t} »" for t in terms)

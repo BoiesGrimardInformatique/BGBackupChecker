@@ -119,6 +119,10 @@ d'erreur à déchiffrer, on est guidé vers le choix des dossiers.
   caractères) et la note des pièces jointes — taper « VSS » y ressort donc
   aussi les courriels qui n'ont le mot que dans leur corps.
 
+Les deux recherches sont **insensibles à la casse et aux accents**
+(« echec » trouve « Échec ») et acceptent **plusieurs mots — tous requis**
+(« vss comptable » cible le mot chez un client).
+
 **Options de ligne de commande** (utilisables aussi via `lancer.bat`, qui
 transmet les arguments) :
 
@@ -153,6 +157,11 @@ courriels sont lus en entier.
   changer la section `attachments` vide le cache (le texte extrait en
   dépend) ; recalibrer `parsers` n'exige **pas** de le vider — le classement
   se refait à chaque exécution sur le contenu brut.
+- L'analyse elle-même est optimisée pour les grosses boîtes : les motifs de
+  détection sont **compilés une seule fois par exécution** (plus de
+  recompilation à chaque courriel) et la préparation des extraits est bornée
+  même sur de très gros corps. Le poste de coût principal d'un cycle reste
+  la lecture Outlook, couverte par le cache ci-dessus.
 
 ## Pièces jointes (optionnel, désactivé par défaut)
 

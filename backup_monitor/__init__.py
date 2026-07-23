@@ -4,6 +4,7 @@ Server, scripts personnalisés) reçus dans une boîte Exchange, et génération
 d'un tableau de bord HTML local. Aucun courriel n'est modifié, déplacé ni
 marqué comme lu."""
 
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -29,6 +30,15 @@ SEVERITY = [STATUS_ERROR, STATUS_MISSING, STATUS_WARNING, STATUS_UNKNOWN,
 # (code 1) pour que les lanceurs (lancer.bat, install.bat) puissent enchaîner
 # automatiquement sur l'assistant « setup » plutôt que d'afficher une erreur.
 EXIT_NOT_CONFIGURED = 3
+
+
+def fold_text(s: str) -> str:
+    """Minuscules sans accents (É→e) — base commune de la recherche par
+    mots-clés (commande find et champ du tableau) : « echec » trouve
+    « Échec » et inversement."""
+    return "".join(c.lower()
+                   for c in unicodedata.normalize("NFD", str(s or ""))
+                   if not unicodedata.combining(c))
 
 
 def load_timezone(name: str) -> ZoneInfo:

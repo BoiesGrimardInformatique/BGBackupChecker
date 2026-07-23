@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from . import (
     BackupEvent,
+    fold_text,
     load_timezone,
     JobState,
     SEVERITY,
@@ -187,6 +188,13 @@ _JS = """
   }
 
   // --- Filtres ----------------------------------------------------------
+  // Requête pliée comme data-texte (minuscules sans accents) : « echec »
+  // trouve « Échec ». Plusieurs mots = tous requis, comme la commande find.
+  function fold(s) {
+    s = String(s).toLowerCase();
+    return s.normalize ? s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+                       : s;
+  }
   var state = { produit: 'tous', etat: 'tous', client: 'tous', q: '' };
   try {
     var saved = JSON.parse(localStorage.getItem('bm-filtres') || '{}');
@@ -200,11 +208,14 @@ _JS = """
     try { localStorage.setItem('bm-filtres', JSON.stringify(state)); }
     catch (e) {}
     var shown = 0;
+    var terms = fold(state.q).split(/\\s+/).filter(Boolean);
     document.querySelectorAll('#mails tbody tr.row').forEach(function (tr) {
       var ok = (state.produit === 'tous' || tr.dataset.produit === state.produit)
         && (state.etat === 'tous' || tr.dataset.etat === state.etat)
         && (state.client === 'tous' || tr.dataset.client === state.client)
-        && (!state.q || tr.dataset.texte.indexOf(state.q) !== -1);
+        && terms.every(function (t) {
+             return tr.dataset.texte.indexOf(t) !== -1;
+           });
       tr.hidden = !ok;
       var det = tr.nextElementSibling;
       if (det && det.classList.contains('detail') && !ok) {
@@ -233,7 +244,7 @@ _JS = """
   var champ = document.getElementById('recherche');
   champ.value = state.q;
   champ.addEventListener('input', function () {
-    state.q = champ.value.trim().toLowerCase();
+    state.q = champ.value.trim();
     apply();
   });
   var selClient = document.getElementById('filtre-client');
@@ -463,9 +474,11 @@ def _events_table(events: list[BackupEvent], max_rows: int) -> str:
         # L'extrait du corps et la note des pièces jointes font partie du
         # texte cherchable : taper un mot-clé (« VSS », un nom de volume…)
         # ressort aussi les courriels qui ne l'ont que dans leur contenu.
-        haystack = " ".join(
+        # Texte plié (minuscules sans accents) : le JS plie la requête de la
+        # même façon — « echec » trouve « Échec ».
+        haystack = fold_text(" ".join(
             [ev.subject, ev.machine, ev.job, ev.sender, ev.folder,
-             ev.client, ev.excerpt, ev.attachments_note]).lower()
+             ev.client, ev.excerpt, ev.attachments_note]))
         accent = ' accent-critical' if ev.status == STATUS_ERROR else ""
         rows.append(
             f'<tr class="row{accent}" data-produit="{_esc(ev.product)}" '

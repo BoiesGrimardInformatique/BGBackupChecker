@@ -170,6 +170,22 @@ def _checks() -> list[tuple[str, bool, str]]:
               .machine == "SRV-X",
               fiab_ev["Macrium Reflect Backup - extraction"].machine)
 
+        # Motifs précompilés : une regex utilisateur invalide est ignorée
+        # sans planter (les motifs valides continuent de classer), et une
+        # section parsers différente invalide bien le cache de compilation.
+        pc_cfg = {**cfg, "parsers": {"macrium": {
+            "failure": ["(", "(?i)backup aborted"]}}}
+        pc_ev = analyze(pc_cfg, [RawMail(
+            "Macrium Reflect Backup", "b@test.local", now,
+            "Backup aborted", "Backups/Macrium", "macrium")])
+        check("Motifs : regex invalide ignorée, les valides classent",
+              pc_ev[0].status == STATUS_ERROR, str(pc_ev[0]))
+        pc_ev2 = analyze(cfg, [RawMail(
+            "Macrium Reflect Backup", "b@test.local", now,
+            "Backup completed successfully", "Backups/Macrium", "macrium")])
+        check("Motifs : cache de compilation invalidé entre configs",
+              pc_ev2[0].status == STATUS_SUCCESS, str(pc_ev2[0]))
+
         # Regex invalide dans expected_jobs : la tâche doit apparaître en
         # erreur de configuration, jamais en faux vert (« matche tout »).
         bad_cfg = {**cfg, "expected_jobs": [
@@ -335,12 +351,22 @@ def _checks() -> list[tuple[str, bool, str]]:
               != fingerprint({"attachments": {"enabled": False}}))
 
         # Commande find : extrait de contexte autour du mot-clé
+        from . import fold_text
         from .__main__ import _context_excerpt
         ctx = _context_excerpt(
             "Journal de la nuit.\nErreur VSS 0x8004231f pendant l'image du "
             "volume C: — nouvelle tentative planifiée.", "vss")
         check("find : extrait de contexte autour du mot-clé",
               "VSS" in ctx and "0x8004231f" in ctx and "\n" not in ctx, ctx)
+        # Recherche insensible aux accents : « echec » trouve « Échec », et
+        # l'extrait affiché garde le texte original (accents compris).
+        check("Recherche : pliage accents/casse (fold_text)",
+              fold_text("Échec RÉUSSI à Montréal") == "echec reussi a montreal",
+              fold_text("Échec RÉUSSI à Montréal"))
+        ctx2 = _context_excerpt("Sauvegarde terminée : Échec du script.",
+                                "echec")
+        check("find : « echec » trouve « Échec », extrait original conservé",
+              "Échec" in ctx2, ctx2)
 
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
@@ -383,6 +409,10 @@ def _checks() -> list[tuple[str, bool, str]]:
         row_attrs = re.findall(r'data-texte="([^"]*)"', page)
         check("Tableau : recherche par mot-clé du contenu (data-texte)",
               any("contenu quelconque" in a for a in row_attrs),
+              str(row_attrs)[:200])
+        check("Tableau : data-texte plié (sans accents) + requête pliée en JS",
+              any("message sans mots-cles" in a for a in row_attrs)
+              and "normalize('NFD')" in page,
               str(row_attrs)[:200])
         # Titre configurable (report.title), échappé
         page_t = render({**cfg, "report": {**cfg["report"],
