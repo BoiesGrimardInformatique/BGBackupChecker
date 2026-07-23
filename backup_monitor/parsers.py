@@ -341,6 +341,27 @@ def job_states(cfg: dict, events: list[BackupEvent]) -> list[JobState]:
     return states
 
 
+def job_matches(cfg: dict, events: list[BackupEvent]) -> dict[str, list[BackupEvent]]:
+    """Tous les événements correspondant à chaque tâche attendue — même
+    critère que job_states (qui ne retient que le plus récent) ; sert à
+    l'historique quotidien pour dater chaque résultat sur SON jour de
+    réception. Les regex invalides sont ignorées ici : job_states les
+    signale déjà comme erreur de configuration."""
+    out: dict[str, list[BackupEvent]] = {}
+    for job in cfg.get("expected_jobs") or []:
+        name = str(job.get("name") or job.get("match") or "(tâche sans nom)")
+        try:
+            rx = re.compile(job.get("match", ""), re.IGNORECASE)
+        except re.error:
+            continue
+        matched = [ev for ev in events
+                   if ev.product == job.get("product")
+                   and rx.search(f"{ev.subject} {ev.machine} {ev.job}")]
+        if matched:
+            out[name] = matched
+    return out
+
+
 def suggest_jobs(events: list[BackupEvent]) -> list[dict]:
     """Propose des expected_jobs à partir des courriels observés : regroupe
     par (produit, machine/client, tâche), estime la fréquence d'envoi

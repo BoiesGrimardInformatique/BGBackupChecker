@@ -95,6 +95,17 @@ expected_jobs:
     every_hours: 24
     grace_hours: 6
 
+# Historique quotidien — le tableau ne montre que la fenêtre d'analyse
+# (days_back) ; l'historique mémorise en plus le PIRE état de CHAQUE JOUR par
+# tâche suivie (fichier local historique.json, écrit par la commande « run »
+# seulement). Le tableau affiche alors une bande des derniers jours par tâche,
+# le nombre de jours en échec et le taux de réussite sur 30 jours — les
+# tâches en difficulté remontent en premier.
+history:
+  enabled: true
+  keep_days: 90   # rétention du fichier (jours)
+  show_days: 14   # jours affichés dans la bande du tableau
+
 # Phase de rodage : tant que l'outil n'est pas déclaré « version finale »,
 # l'autotest complet (36+ vérifications hors-ligne) tourne à CHAQUE
 # utilisation et journalise son résultat dans autotest.log — une régression

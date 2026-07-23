@@ -21,7 +21,9 @@ import time
 import traceback
 from datetime import datetime
 
-from . import STATUS_ERROR, STATUS_MISSING, STATUS_UNKNOWN, STATUS_WARNING
+from . import (STATUS_ERROR, STATUS_MISSING, STATUS_UNKNOWN, STATUS_WARNING,
+               load_timezone)
+from . import history
 from . import notify
 from .parsers import DEFAULT_PATTERNS, analyze, job_states, suggest_jobs
 from .report import render, write
@@ -105,7 +107,11 @@ def _run_once(cfg, password, strict_unknown: bool = False) -> tuple[int, int]:
     mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
     events = analyze(cfg, mails)
     states = job_states(cfg, events)
-    out = write(cfg, render(cfg, events, states, fetch_errors))
+    hist = None
+    if (cfg.get("history") or {}).get("enabled", True):
+        tz = load_timezone(cfg["analysis"]["timezone"])
+        hist = history.update(cfg, states, events, datetime.now(tz))
+    out = write(cfg, render(cfg, events, states, fetch_errors, hist))
     sent, notif_warnings = notify.check_and_notify(cfg, events, states)
     errors = sum(1 for e in events if e.status == STATUS_ERROR)
     warns = sum(1 for e in events if e.status == STATUS_WARNING)

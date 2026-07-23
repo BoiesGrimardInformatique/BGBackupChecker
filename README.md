@@ -211,6 +211,27 @@ Pour ne pas écrire ce bloc à la main : `lancer.bat suggest-jobs` (ou
 machine/tâche, estime la fréquence d'envoi et imprime un bloc `expected_jobs`
 prêt à coller dans `config.yaml` — il reste à ajuster noms et tolérances.
 
+## Historique et tendances
+
+Le tableau ne montre que la fenêtre d'analyse (`days_back`) : sans mémoire,
+impossible de voir qu'une tâche échoue une nuit sur trois ou qu'un client se
+dégrade depuis une semaine. Chaque exécution de `run` mémorise donc le **pire
+état de chaque jour** par tâche suivie dans `historique.json` (fichier local,
+à côté de `config.yaml`). Le tableau affiche alors une section **Historique** :
+une bande des derniers jours par tâche (`history.show_days`, 14 par défaut),
+le nombre de jours en échec et le **taux de réussite sur 30 jours** — les
+tâches en difficulté remontent en premier.
+
+- Avec `expected_jobs` : chaque courriel correspondant compte sur **son** jour
+  de réception — le premier passage remplit donc l'historique sur toute la
+  fenêtre d'analyse — et l'état courant (y compris « Manquant », qui n'a pas
+  de courriel) compte sur le jour de l'exécution.
+- Sans `expected_jobs` : chaque couple machine/tâche observé est suivi de la
+  même façon.
+- Rétention : `history.keep_days` (90 jours par défaut) ; désactivable avec
+  `history.enabled: false`. Seule la commande `run` écrit l'historique —
+  `diagnose` et `test` n'y touchent pas.
+
 ## Notifications (optionnel, désactivé par défaut)
 
 Par défaut l'outil n'alerte pas : il faut regarder le tableau. La section

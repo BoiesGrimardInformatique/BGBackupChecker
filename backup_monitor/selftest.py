@@ -7,9 +7,11 @@ import re
 import tempfile
 from datetime import datetime, timedelta
 
-from . import (RawMail, STATUS_ERROR, STATUS_MISSING, STATUS_SUCCESS,
-               STATUS_UNKNOWN, STATUS_WARNING, load_timezone)
+from . import (JobState, RawMail, STATUS_ERROR, STATUS_MISSING,
+               STATUS_SUCCESS, STATUS_UNKNOWN, STATUS_WARNING, load_timezone)
 from .attachments import extract, gate, looks_like_text, sender_allowed
+from .history import HISTORY_FILE, success_rate
+from .history import update as hist_update
 from .notify import check_and_notify, transitions
 from .parsers import analyze, job_states, suggest_jobs
 from .report import render, write
@@ -200,6 +202,66 @@ def _checks() -> list[tuple[str, bool, str]]:
               n_sent == 0 and n_warn == []
               and os.path.exists(os.path.join(tmpdir, "dernier-etat.json")))
 
+        # Historique quotidien : pire état par jour, mémorisé entre les runs
+        hcfg = {**cfg, "history": {"enabled": True, "keep_days": 90,
+                                   "show_days": 14},
+                "expected_jobs": [
+                    {"name": "Tâche H", "product": "macrium",
+                     "match": "SRV-H", "every_hours": 24, "grace_hours": 6}]}
+        hist_mails = [
+            RawMail("Macrium Reflect Backup - SRV-H", "b@test.local",
+                    now - timedelta(hours=2),
+                    "Computer: SRV-H\nBackup completed successfully",
+                    "Backups/Macrium", "macrium"),
+            RawMail("Macrium Reflect Backup - SRV-H", "b@test.local",
+                    now - timedelta(hours=26),
+                    "Computer: SRV-H\nBackup aborted",
+                    "Backups/Macrium", "macrium"),
+        ]
+        h_ev = analyze(hcfg, hist_mails)
+        h = hist_update(hcfg, job_states(hcfg, h_ev), h_ev, now)
+        jours = h["taches"]["tache:Tâche H"]["jours"]
+        d_old = (now - timedelta(hours=26)).strftime("%Y-%m-%d")
+        d_new = (now - timedelta(hours=2)).strftime("%Y-%m-%d")
+        check("Historique : chaque courriel compte sur SON jour",
+              jours.get(d_old) == STATUS_ERROR
+              and jours.get(d_new) == STATUS_SUCCESS, str(jours))
+        # Aggravation le même jour : le pire état du jour est retenu, et un
+        # succès ultérieur du même jour ne l'efface pas.
+        bad = [JobState(name="Tâche H", product="macrium",
+                        status=STATUS_ERROR)]
+        good = [JobState(name="Tâche H", product="macrium",
+                         status=STATUS_SUCCESS)]
+        h = hist_update(hcfg, bad, [], now)
+        h = hist_update(hcfg, good, [], now)
+        today = now.strftime("%Y-%m-%d")
+        check("Historique : le pire état du jour est retenu",
+              h["taches"]["tache:Tâche H"]["jours"][today] == STATUS_ERROR,
+              str(h["taches"]["tache:Tâche H"]["jours"]))
+        check("Historique : fichier écrit",
+              os.path.exists(os.path.join(tmpdir, HISTORY_FILE)))
+        # Taille automatique : un jour au-delà de keep_days disparaît.
+        hist_update(hcfg, bad, [], now - timedelta(days=200))
+        h = hist_update(hcfg, good, [], now)
+        old_day = (now - timedelta(days=200)).strftime("%Y-%m-%d")
+        check("Historique : jours au-delà de keep_days élagués",
+              old_day not in h["taches"]["tache:Tâche H"]["jours"])
+        ok30, seen30 = success_rate(
+            {today: STATUS_SUCCESS, d_old: STATUS_ERROR,
+             "2000-01-01": STATUS_SUCCESS}, now)
+        check("Historique : taux de réussite limité aux 30 derniers jours",
+              ok30 == 1 and seen30 == 2, f"{ok30}/{seen30}")
+        # Sans expected_jobs : suivi par couple machine/tâche observé.
+        h_free = hist_update({**hcfg, "expected_jobs": []}, [], h_ev, now)
+        check("Historique sans expected_jobs : couple machine/tâche suivi",
+              any(j.get("nom", "").startswith("SRV-H")
+                  for j in h_free["taches"].values()),
+              str(list(h_free["taches"])))
+        # Rendu : section présente avec historique, absente sans.
+        page_h = render(hcfg, h_ev, job_states(hcfg, h_ev), None, h)
+        check("Tableau : section Historique (bande des jours + taux)",
+              'id="historique"' in page_h and "Taux 30 j" in page_h)
+
         # suggest-jobs : fréquence estimée à partir des courriels observés
         sj_mails = [
             RawMail("Macrium Reflect Backup - SRV-TEST", "b@test.local",
@@ -250,6 +312,8 @@ def _checks() -> list[tuple[str, bool, str]]:
             check(f"Tableau : {label}", needle in page)
         check("Tableau : aucun script externe",
               "http://" not in page and "https://" not in page)
+        check("Tableau : pas de section Historique sans données",
+              'id="historique"' not in page)
 
     # Configuration d'exemple (si PyYAML est présent — toujours le cas
     # après install.bat ; peut manquer sur un poste de développement)

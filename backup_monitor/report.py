@@ -7,18 +7,20 @@ import html
 import json
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import (
     BackupEvent,
     load_timezone,
     JobState,
+    SEVERITY,
     STATUS_ERROR,
     STATUS_MISSING,
     STATUS_SUCCESS,
     STATUS_UNKNOWN,
     STATUS_WARNING,
 )
+from . import history as history_mod
 
 # Icône + libellé : la couleur ne porte jamais l'information seule.
 BADGES = {
@@ -35,9 +37,9 @@ PRODUCT_LABELS = {
     "script": "Script personnalisé",
 }
 NO_CLIENT = "(non assigné)"
-# Du plus grave au moins grave, pour la vue par client
-SEVERITY = [STATUS_ERROR, STATUS_MISSING, STATUS_WARNING, STATUS_UNKNOWN,
-            STATUS_SUCCESS]
+# Nombre max de lignes de la section Historique (les tâches en difficulté
+# remontent en premier, la coupe ne cache donc que des tâches saines).
+MAX_HISTORY_ROWS = 60
 
 _CSS = """
 :root { color-scheme: light dark; }
@@ -131,6 +133,11 @@ tr.detail code { font-size: 0.78rem; background: var(--surface);
 #clients-resume tbody tr { cursor: pointer; }
 #clients-resume td.n { font-variant-numeric: tabular-nums; text-align: right; }
 #clients-resume th.n { text-align: right; }
+#historique td.hd, #historique th.hd { text-align: center; padding: 6px 3px;
+  font-variant-numeric: tabular-nums; }
+#historique td.hd .ic { font-weight: 700; }
+#historique td.n, #historique th.n { font-variant-numeric: tabular-nums;
+  text-align: right; }
 .note { color: var(--muted); font-size: 0.78rem; margin-top: 24px; }
 .empty { padding: 14px; color: var(--muted); font-size: 0.85rem; }
 .banner { border: 1px solid var(--serious); border-left-width: 4px;
@@ -364,6 +371,71 @@ def _jobs_table(states: list[JobState]) -> str:
             f'<tbody>{"".join(rows)}</tbody></table></div>')
 
 
+def _history_section(cfg: dict, history: dict | None, now: datetime) -> str:
+    """Bande des derniers jours par tâche suivie (pire état de chaque jour),
+    jours en échec et taux de réussite sur 30 jours. Les tâches en difficulté
+    remontent en premier — c'est la section « quoi surveiller ce matin »."""
+    taches = (history or {}).get("taches") or {}
+    if not taches:
+        return ""
+    conf = cfg.get("history") or {}
+    show = max(1, int(conf.get("show_days", 14)))
+    days = [now - timedelta(days=i) for i in range(show - 1, -1, -1)]
+    keys = [d.strftime("%Y-%m-%d") for d in days]
+
+    entries = []
+    for t in taches.values():
+        jours = t.get("jours") or {}
+        bad = sum(1 for k in keys
+                  if jours.get(k) in (STATUS_ERROR, STATUS_MISSING))
+        ok, total = history_mod.success_rate(jours, now)
+        entries.append((bad, t.get("client") or "", t.get("nom") or "?",
+                        jours, ok, total))
+    entries.sort(key=lambda e: (-e[0], e[1] == "", e[1], e[2]))
+
+    day_heads = "".join(
+        f'<th class="hd" title="{d.strftime("%Y-%m-%d")}">{d.day}</th>'
+        for d in days)
+    rows = []
+    for bad, client, nom, jours, ok, total in entries[:MAX_HISTORY_ROWS]:
+        cells = []
+        for k in keys:
+            status = jours.get(k)
+            if status is None:
+                cells.append(f'<td class="hd c-muted" '
+                             f'title="{k} : aucune donnée">'
+                             '<span class="ic">·</span></td>')
+            else:
+                icon, label, cls = BADGES.get(status, BADGES[STATUS_UNKNOWN])
+                cells.append(f'<td class="hd c-{cls}" title="{k} : {label}">'
+                             f'<span class="ic">{icon}</span></td>')
+        rate = (f'<span title="{ok} jour(s) en succès sur {total} '
+                f'renseigné(s)">{round(100 * ok / total)} %</span>'
+                if total else "—")
+        accent = ' class="accent-critical"' if bad else ""
+        rows.append(
+            f"<tr{accent}><td>{_esc(nom)}</td>"
+            f"<td>{_esc(client or NO_CLIENT)}</td>"
+            f'{"".join(cells)}'
+            f'<td class="n">{bad or "—"}</td>'
+            f'<td class="n">{rate}</td></tr>')
+    trunc = ""
+    if len(entries) > MAX_HISTORY_ROWS:
+        trunc = (f'<p class="meta">{len(entries) - MAX_HISTORY_ROWS} tâche(s) '
+                 "sans difficulté récente non affichée(s).</p>")
+    return (
+        "<h2>Historique — pire état par jour</h2>"
+        '<div class="wrap" id="historique"><table><thead><tr>'
+        f'<th>Tâche</th><th>Client</th>{day_heads}'
+        f'<th class="n" title="Jours en erreur ou manquant sur les '
+        f'{show} affichés">Échecs</th>'
+        '<th class="n">Taux 30 j</th>'
+        f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+        f'<p class="meta">Pire état de chaque jour ({show} derniers jours, '
+        "mémorisés dans historique.json à chaque exécution). Les tâches en "
+        f"difficulté sont en tête.</p>{trunc}")
+
+
 def _detail_row(ev: BackupEvent) -> str:
     pattern = (f"<code>{_esc(ev.matched_pattern)}</code>"
                if ev.matched_pattern else
@@ -521,7 +593,8 @@ def _filters(clients: list[str]) -> str:
 
 
 def render(cfg: dict, events: list[BackupEvent], states: list[JobState],
-           fetch_errors: list[str] | None = None) -> str:
+           fetch_errors: list[str] | None = None,
+           history: dict | None = None) -> str:
     tz = load_timezone(cfg["analysis"]["timezone"])
     now = datetime.now(tz)
     refresh = int(cfg["report"]["refresh_seconds"])
@@ -574,6 +647,7 @@ généré {now.strftime("%Y-%m-%d %H:%M")} · <span class="rel"></span></span>
 {_client_summary(states, events, now)}
 <h2 id="taches">État par tâche attendue</h2>
 {_jobs_table(states)}
+{_history_section(cfg, history, now)}
 <h2>Courriels analysés</h2>
 {_filters(clients)}
 {_events_table(events, int(cfg["report"]["max_rows"]))}

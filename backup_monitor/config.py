@@ -33,6 +33,10 @@ DEFAULTS = {
     # Phase de rodage : autotest complet à chaque utilisation, journalisé
     # dans autotest.log. Passer on_each_run à false à la version finale.
     "autotest": {"on_each_run": True},
+    # Historique quotidien (historique.json) : pire état de chaque jour par
+    # tâche suivie, affiché dans le tableau (bande des derniers jours + taux
+    # de réussite sur 30 jours). Seule la commande « run » l'écrit.
+    "history": {"enabled": True, "keep_days": 90, "show_days": 14},
     "expected_jobs": [],
     "clients": [],
     # Notifications sortantes sur TRANSITION d'état (jamais à chaque cycle).
