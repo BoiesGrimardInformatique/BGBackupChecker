@@ -101,6 +101,28 @@ d'erreur à déchiffrer, on est guidé vers le choix des dossiers.
 - **Mode continu ponctuel** :
   `venv\Scripts\python -m backup_monitor run --watch 300`
 
+## Performance de collecte (cache local, mode Outlook)
+
+Le principal poste de coût d'un cycle est la lecture des corps de courriels
+via COM : chaque corps force Outlook à charger l'élément complet, et la boîte
+en contient vite plus d'un millier dans la fenêtre d'analyse. L'outil garde
+donc un **cache par poste** du contenu déjà lu : au cycle suivant, un courriel
+déjà vu ne coûte que trois propriétés légères — seuls les **nouveaux**
+courriels sont lus en entier.
+
+- Le fichier (`cache-courriels-*.json`) vit dans le **profil du poste**
+  (`%LOCALAPPDATA%\backup-monitor` sous Windows, `~/.cache/backup-monitor`
+  ailleurs) — **jamais sur la clé USB**, qui continue de ne porter aucun
+  contenu de courriel.
+- Il contient sujet/expéditeur/corps des courriels de la fenêtre d'analyse :
+  si même cela est trop sensible, `cache.enabled: false` dans `config.yaml`
+  (le fichier existant est alors supprimé au prochain lancement). Le
+  supprimer à la main est toujours sans risque : il se reconstruit.
+- Un courriel supprimé ou déplacé disparaît du cache au cycle suivant ;
+  changer la section `attachments` vide le cache (le texte extrait en
+  dépend) ; recalibrer `parsers` n'exige **pas** de le vider — le classement
+  se refait à chaque exécution sur le contenu brut.
+
 ## Pièces jointes (optionnel, désactivé par défaut)
 
 Les produits joignent souvent leur rapport en `.txt`/`.log`, `.html` ou

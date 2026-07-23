@@ -18,6 +18,10 @@ DEFAULTS = {
         "verify_ssl": True,
     },
     "outlook": {"store": ""},
+    # Cache local des courriels déjà lus (mode Outlook) : seuls les nouveaux
+    # courriels sont lus en entier à chaque cycle. Fichier PAR POSTE (profil
+    # local, jamais sur la clé USB) ; dir vide = emplacement par défaut.
+    "cache": {"enabled": True, "dir": ""},
     "imap": {"server": "", "port": 993, "ssl": True},
     "folders": {"macrium": [], "retrospect": []},
     # Dossiers parents explorés récursivement : chaque sous-dossier est un

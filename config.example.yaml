@@ -19,6 +19,20 @@ outlook:
   # "backups@exemple.local". Laisser vide = boîte par défaut du profil.
   store: ""
 
+# Cache local de collecte (mode Outlook) — relire tous les corps de courriels
+# via Outlook à chaque cycle est le principal poste de coût : avec le cache,
+# seuls les courriels JAMAIS VUS sont lus en entier, les autres sont reconnus
+# à leur identifiant. Le fichier vit dans le profil du POSTE
+# (%LOCALAPPDATA%\backup-monitor sous Windows) — jamais sur la clé USB — et
+# contient sujet/expéditeur/corps des courriels de la fenêtre d'analyse :
+# mettre enabled: false si même cela est trop sensible (le fichier existant
+# est alors supprimé au prochain lancement). Un courriel supprimé/déplacé
+# sort du cache au cycle suivant ; changer la section attachments le vide ;
+# le supprimer à la main est toujours sans risque (il se reconstruit).
+cache:
+  enabled: true
+  dir: ""   # vide = emplacement par défaut du poste ; sinon dossier au choix
+
 imap:
   server: ""
   port: 993

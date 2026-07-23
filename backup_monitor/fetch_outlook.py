@@ -17,6 +17,7 @@ import win32com.client
 
 from . import RawMail, load_timezone
 from . import attachments as att_mod
+from . import mailcache
 
 OL_MAIL_ITEM = 43        # olMail
 OL_FOLDER_INBOX = 6      # olFolderInbox
@@ -157,6 +158,7 @@ def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
     since = datetime.now(tz) - timedelta(days=int(cfg["analysis"]["days_back"]))
     store = (cfg.get("outlook") or {}).get("store", "")
     ns = _namespace()
+    cache = mailcache.open_cache(cfg)
     mails: list[RawMail] = []
     errors: list[str] = []
     # Dossiers par produit (macrium/retrospect explicites).
@@ -165,7 +167,7 @@ def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
             try:
                 folder = _resolve_folder(ns, path, store)
                 skipped = _read_items(cfg, folder, path, product, "",
-                                      since, tz, mails)
+                                      since, tz, mails, cache)
                 if skipped:
                     errors.append(f"[{product}] {path} : {skipped} "
                                   "courriel(s) illisible(s) ignoré(s)")
@@ -175,14 +177,16 @@ def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
     for parent in cfg.get("client_folders") or []:
         try:
             _fetch_client_parent(cfg, ns, store, parent, since, tz,
-                                 mails, errors)
+                                 mails, errors, cache)
         except Exception as exc:
             errors.append(f"[auto] {parent} : {exc}")
+    cache.save()
     return mails, errors
 
 
 def _fetch_client_parent(cfg, ns, store, parent_path, since, tz,
-                         mails: list[RawMail], errors: list[str]) -> None:
+                         mails: list[RawMail], errors: list[str],
+                         cache) -> None:
     """Explore un dossier parent : chaque sous-dossier DIRECT est un client
     (son nom) ; le produit est détecté au contenu de chaque courriel."""
     parent = _resolve_folder(ns, parent_path, store)
@@ -198,14 +202,15 @@ def _fetch_client_parent(cfg, ns, store, parent_path, since, tz,
         except Exception:
             continue
         _walk_client(cfg, sub, f"{parent_path}/{client}", client,
-                     since, tz, mails, errors)
+                     since, tz, mails, errors, cache)
 
 
 def _walk_client(cfg, folder, path, client, since, tz,
-                 mails: list[RawMail], errors: list[str]) -> None:
+                 mails: list[RawMail], errors: list[str], cache) -> None:
     """Lit un dossier client et ses éventuels sous-dossiers, tous rattachés au
     même client (le sous-dossier de premier niveau)."""
-    skipped = _read_items(cfg, folder, path, "auto", client, since, tz, mails)
+    skipped = _read_items(cfg, folder, path, "auto", client, since, tz,
+                          mails, cache)
     if skipped:
         errors.append(f"[auto] {path} : {skipped} "
                       "courriel(s) illisible(s) ignoré(s)")
@@ -219,11 +224,11 @@ def _walk_client(cfg, folder, path, client, since, tz,
         except Exception:
             continue
         _walk_client(cfg, sub, f"{path}/{name}", client, since, tz,
-                     mails, errors)
+                     mails, errors, cache)
 
 
 def _read_items(cfg, folder, path, product, client, since, tz,
-                mails: list[RawMail]) -> int:
+                mails: list[RawMail], cache) -> int:
     """Lit les courriels récents d'UN dossier (déjà résolu) et les ajoute à
     `mails`. `product` peut être « auto » (détecté ensuite au contenu) et
     `client` le nom du dossier client (vide pour les dossiers par produit).
@@ -247,6 +252,33 @@ def _read_items(cfg, folder, path, product, client, since, tz,
                 continue
             if received < since:
                 break  # items triés : tout le reste est plus ancien
+            # Cache : un courriel déjà lu lors d'un cycle précédent ne coûte
+            # que trois propriétés légères (Class, ReceivedTime, EntryID) —
+            # c'est la lecture du corps qui force Outlook à charger l'élément
+            # complet, et c'est elle qu'on évite. Dossier/produit/client
+            # viennent toujours du parcours COURANT : un courriel déplacé
+            # d'un dossier client à un autre reste bien attribué.
+            entry_id = ""
+            try:
+                entry_id = str(item.EntryID or "")
+            except Exception:
+                pass
+            cached = cache.get(entry_id) if entry_id else None
+            if cached is not None:
+                mails.append(
+                    RawMail(
+                        subject=cached.get("sujet", ""),
+                        sender=cached.get("expediteur", ""),
+                        received=received,
+                        body=cached.get("corps", ""),
+                        folder=path,
+                        product=product,
+                        client=client,
+                        attachments_text=cached.get("pj_texte", ""),
+                        attachments_note=cached.get("pj_note", ""),
+                    )
+                )
+                continue
             sender = ""
             try:
                 sender = item.SenderEmailAddress or item.SenderName or ""
@@ -255,12 +287,14 @@ def _read_items(cfg, folder, path, product, client, since, tz,
             except Exception:
                 pass
             att_text, att_note = _read_attachments(item, cfg, sender)
+            subject = item.Subject or ""
+            body = item.Body or ""
             mails.append(
                 RawMail(
-                    subject=item.Subject or "",
+                    subject=subject,
                     sender=sender,
                     received=received,
-                    body=item.Body or "",
+                    body=body,
                     folder=path,
                     product=product,
                     client=client,
@@ -268,6 +302,7 @@ def _read_items(cfg, folder, path, product, client, since, tz,
                     attachments_note=att_note,
                 )
             )
+            cache.put(entry_id, subject, sender, body, att_text, att_note)
         except Exception:
             skipped += 1
     return skipped
