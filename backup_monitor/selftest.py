@@ -3,13 +3,15 @@ pièces jointes, génération du tableau) SANS toucher à Outlook ni au réseau.
 À lancer après install.bat :  python -m backup_monitor selftest"""
 
 import os
+import re
 import tempfile
 from datetime import datetime, timedelta
 
 from . import (RawMail, STATUS_ERROR, STATUS_MISSING, STATUS_SUCCESS,
                STATUS_UNKNOWN, STATUS_WARNING, load_timezone)
 from .attachments import extract, gate, looks_like_text, sender_allowed
-from .parsers import analyze, job_states
+from .notify import check_and_notify, transitions
+from .parsers import analyze, job_states, suggest_jobs
 from .report import render, write
 
 TZ = load_timezone("America/Toronto")
@@ -176,6 +178,43 @@ def _checks() -> list[tuple[str, bool, str]]:
               and bad_states[0].status == STATUS_ERROR
               and "invalide" in bad_states[0].due_note,
               str([(s.status, s.due_note) for s in bad_states]))
+
+        # Notifications : uniquement sur transition d'état
+        watch = {STATUS_ERROR, STATUS_MISSING}
+        check("Notification : passage en erreur détecté",
+              transitions({"tache:Image C": STATUS_SUCCESS},
+                          {"tache:Image C": STATUS_ERROR}, watch) != [])
+        check("Notification : état inchangé = silence",
+              transitions({"tache:Image C": STATUS_ERROR},
+                          {"tache:Image C": STATUS_ERROR}, watch) == [])
+        check("Notification : retour au succès signalé",
+              any("rétabli" in m for m in transitions(
+                  {"tache:Image C": STATUS_ERROR},
+                  {"tache:Image C": STATUS_SUCCESS}, watch)))
+        check("Notification : nouvel état non surveillé = silence",
+              transitions({}, {"tache:Image C": STATUS_WARNING}, watch) == [])
+        # check_and_notify désactivé : mémorise l'état, n'envoie rien.
+        n_sent, n_warn = check_and_notify(
+            {**cfg, "notifications": {"enabled": False}}, events, states)
+        check("Notification désactivée : état mémorisé, aucun envoi",
+              n_sent == 0 and n_warn == []
+              and os.path.exists(os.path.join(tmpdir, "dernier-etat.json")))
+
+        # suggest-jobs : fréquence estimée à partir des courriels observés
+        sj_mails = [
+            RawMail("Macrium Reflect Backup - SRV-TEST", "b@test.local",
+                    now - timedelta(hours=h),
+                    "Computer: SRV-TEST\nBackup Definition: 'Image C'\n"
+                    "Backup completed successfully",
+                    "Backups/Macrium", "macrium")
+            for h in (2, 26, 50, 74)
+        ]
+        sugs = suggest_jobs(analyze(cfg, sj_mails))
+        check("suggest-jobs : tâche quotidienne détectée (24 h)",
+              len(sugs) == 1 and sugs[0]["every_hours"] == 24
+              and re.search(sugs[0]["match"],
+                            "Backup SRV-TEST Image C") is not None,
+              str(sugs))
 
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",

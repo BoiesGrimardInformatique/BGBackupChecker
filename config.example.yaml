@@ -95,6 +95,22 @@ expected_jobs:
     every_hours: 24
     grace_hours: 6
 
+# Notifications sortantes — désactivées par défaut. L'outil mémorise l'état
+# de chaque tâche (dernier-etat.json) et ne notifie que sur TRANSITION vers
+# un état surveillé (jamais à chaque cycle de 5 minutes). Le retour au succès
+# d'une tâche en alerte est aussi signalé. Astuce : « suggest-jobs » puis des
+# expected_jobs bien remplis donnent les notifications les plus fiables.
+notifications:
+  enabled: false
+  # Canaux : "toast" = notification Windows native (aucune dépendance) ;
+  # "webhook" = POST HTTP vers webhook_url — SEUL trafic réseau sortant de
+  # l'outil, à activer en connaissance de cause (ex. ntfy auto-hébergé).
+  methods: []            # ex. ["toast"] ou ["toast", "webhook"]
+  webhook_url: ""
+  webhook_format: "text"  # "text" = ntfy ; "json" = Teams/Slack ({"text": …})
+  notify_on: ["erreur", "manquant"]   # états qui déclenchent une alerte
+  notify_recovery: true   # notifier aussi le retour au succès
+
 report:
   # Fichier HTML généré (relatif au dossier du projet, ou chemin absolu)
   output: "tableau-backups.html"

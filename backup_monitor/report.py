@@ -237,6 +237,11 @@ _JS = """
       state.client = selClient.value;
       apply();
     });
+  } else if (state.client !== 'tous') {
+    // Filtre client mémorisé mais plus aucun sélecteur (section clients
+    // retirée) : sans ce reset, toutes les lignes resteraient masquées
+    // sans aucun contrôle visible pour s'en sortir.
+    state.client = 'tous';
   }
 
   // Vue par client : cliquer une ligne filtre les courriels sur ce client.

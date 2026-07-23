@@ -6,6 +6,8 @@
   python -m backup_monitor run            # une analyse + génération du tableau
   python -m backup_monitor run --watch 300  # boucle : analyse toutes les 300 s
   python -m backup_monitor diagnose       # bilan de calibrage (motifs, extraction)
+  python -m backup_monitor suggest-jobs   # propose un bloc expected_jobs prêt
+                                          # à coller, déduit des courriels vus
   python -m backup_monitor folders        # liste les dossiers de la boîte
   python -m backup_monitor test           # teste la connexion
   python -m backup_monitor set-password   # mot de passe (modes ews/imap seulement)
@@ -20,8 +22,16 @@ import traceback
 from datetime import datetime
 
 from . import STATUS_ERROR, STATUS_MISSING, STATUS_UNKNOWN, STATUS_WARNING
-from .parsers import DEFAULT_PATTERNS, analyze, job_states
+from . import notify
+from .parsers import DEFAULT_PATTERNS, analyze, job_states, suggest_jobs
 from .report import render, write
+
+# Codes de sortie du mode run (exploitables par la tâche planifiée, un RMM,
+# systemd) : 0 = tout va bien ; 1 = panne de l'outil ; 2 = backups en erreur
+# ou manquants (--fail-on-error) ; 3 = pas encore configuré (EXIT_NOT_...) ;
+# 4 = collecte partielle (dossiers/courriels illisibles, --fail-on-error).
+EXIT_BUSINESS = 2
+EXIT_PARTIAL = 4
 
 
 def _fetcher(cfg):
@@ -51,30 +61,39 @@ def _log(cfg, message: str) -> None:
         pass
 
 
-def _run_once(cfg, password, strict_unknown: bool = False) -> int:
+def _run_once(cfg, password, strict_unknown: bool = False) -> tuple[int, int]:
+    """Une analyse complète. Retourne (problèmes métier, dossiers illisibles) :
+    le premier compte les erreurs/manquants (+ inconnus si strict_unknown),
+    le second les dossiers ou courriels que la collecte a dû ignorer."""
+    t0 = time.monotonic()
     mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
     events = analyze(cfg, mails)
     states = job_states(cfg, events)
     out = write(cfg, render(cfg, events, states, fetch_errors))
+    sent, notif_warnings = notify.check_and_notify(cfg, events, states)
     errors = sum(1 for e in events if e.status == STATUS_ERROR)
     warns = sum(1 for e in events if e.status == STATUS_WARNING)
     unknown = sum(1 for e in events if e.status == STATUS_UNKNOWN)
     missing = sum(1 for s in states if s.status == STATUS_MISSING)
     summary = (f"{len(events)} courriels analysés — {errors} erreur(s), "
                f"{warns} avertissement(s), {unknown} inconnu(s), "
-               f"{missing} tâche(s) manquante(s).")
+               f"{missing} tâche(s) manquante(s) "
+               f"[{time.monotonic() - t0:.1f} s]")
+    if sent:
+        summary += f" | {sent} notification(s) envoyée(s)"
     print(summary)
     for err in fetch_errors:
         print(f"AVERTISSEMENT — dossier illisible : {err}", file=sys.stderr)
+    for warn in notif_warnings:
+        print(f"AVERTISSEMENT — {warn}", file=sys.stderr)
     print(f"Tableau : file://{out}")
     # Détail des dossiers en erreur AUSSI dans le journal : sous pythonw
     # (tâche planifiée), stderr n'est visible nulle part.
-    _log(cfg, summary + ("".join(f" | ILLISIBLE : {e}" for e in fetch_errors)
-                         if fetch_errors else ""))
-    problems = errors + missing + len(fetch_errors)
-    if strict_unknown:
-        problems += unknown
-    return problems
+    _log(cfg, summary
+         + "".join(f" | ILLISIBLE : {e}" for e in fetch_errors)
+         + "".join(f" | NOTIF : {w}" for w in notif_warnings))
+    business = errors + missing + (unknown if strict_unknown else 0)
+    return business, len(fetch_errors)
 
 
 def _diagnose(cfg, password) -> None:
@@ -121,12 +140,45 @@ def _diagnose(cfg, password) -> None:
         print("\nAucun courriel non reconnu : les motifs couvrent tout. ✓")
 
 
+def _suggest_jobs(cfg, password) -> None:
+    """Imprime un bloc expected_jobs prêt à coller dans config.yaml, déduit
+    des courriels observés — supprime la friction principale de la détection
+    des backups manquants."""
+    mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
+    for err in fetch_errors:
+        print(f"AVERTISSEMENT — dossier illisible : {err}", file=sys.stderr)
+    sugs = suggest_jobs(analyze(cfg, mails))
+    if not sugs:
+        print("Rien à proposer : aucune machine ni tâche extraite des "
+              "courriels de la fenêtre d'analyse.\n"
+              "Lancer d'abord « diagnose » pour calibrer l'extraction "
+              "(section parsers de config.yaml).")
+        return
+    print("# Suggestion générée par « suggest-jobs » à partir des "
+          f"{len(sugs)} couples machine/tâche observés.")
+    print("# À COLLER dans config.yaml puis AJUSTER : noms, fréquences "
+          "(every_hours) et tolérances (grace_hours).")
+    print("expected_jobs:")
+    for s in sugs:
+        def q(v: str) -> str:
+            return '"' + str(v).replace('"', "'") + '"'
+        print(f"  - name: {q(s['name'])}")
+        print(f"    product: {s['product']}")
+        print(f"    match: {q(s['match'])}")
+        print(f"    every_hours: {s['every_hours']}"
+              f"  # estimé sur {s['samples']} courriel(s)")
+        print(f"    grace_hours: {s['grace_hours']}")
+        if s.get("client"):
+            print(f"    client: {q(s['client'])}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="backup_monitor",
                                      description=__doc__)
     parser.add_argument("command", nargs="?", default="run",
-                        choices=["run", "setup", "diagnose", "selftest",
-                                 "set-password", "folders", "test"])
+                        choices=["run", "setup", "diagnose", "suggest-jobs",
+                                 "selftest", "set-password", "folders",
+                                 "test"])
     parser.add_argument("--config", default=None,
                         help="chemin de config.yaml (défaut : à côté du paquet)")
     parser.add_argument("--watch", type=int, metavar="SECONDES", default=0,
@@ -154,7 +206,8 @@ def main() -> None:
 
     from .config import load as load_config  # paresseux : requiert PyYAML
     cfg = load_config(cfg_path,
-                      require_folders=(args.command in ("run", "diagnose")))
+                      require_folders=(args.command in
+                                       ("run", "diagnose", "suggest-jobs")))
 
     method = cfg["exchange"]["method"].lower()
 
@@ -183,6 +236,10 @@ def main() -> None:
 
     if args.command == "diagnose":
         _diagnose(cfg, password)
+        return
+
+    if args.command == "suggest-jobs":
+        _suggest_jobs(cfg, password)
         return
 
     if args.command == "test":
@@ -215,13 +272,16 @@ def main() -> None:
                 return
     else:
         try:
-            problems = _run_once(cfg, password, args.fail_on_unknown)
+            business, partial = _run_once(cfg, password, args.fail_on_unknown)
         except Exception:
             _log(cfg, "ERREUR : " + traceback.format_exc(limit=2)
                  .strip().replace("\n", " | "))
             raise
-        if args.fail_on_error and problems:
-            sys.exit(1)
+        if args.fail_on_error:
+            if business:
+                sys.exit(EXIT_BUSINESS)
+            if partial:
+                sys.exit(EXIT_PARTIAL)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ config.yaml
 tableau-backups.html
 backup-monitor.log
 selftest.html
+dernier-etat.json
 
 # Cache hors-ligne des dépendances (généré par preparer-cle.bat)
 wheels/

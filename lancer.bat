@@ -41,15 +41,17 @@ if errorlevel 1 (
 
 cd /d "%PROJET%"
 
-rem Avec arguments : passes tels quels (setup, diagnose, selftest, run...).
-rem  errorlevel 3 = pas encore configure (message deja affiche par l'outil) ;
-rem  errorlevel 1-2 = vraie erreur.  On teste le plus grand seuil d'abord.
-if not "%~1"=="" (
-  "%PY%" -m backup_monitor %*
-  if errorlevel 3 goto :config_a_finir
-  if errorlevel 1 goto :erreur
-  goto :fin
-)
+rem Avec arguments : passes tels quels (setup, diagnose, suggest-jobs...).
+if "%~1"=="" goto :sansargs
+"%PY%" -m backup_monitor %*
+set "RC=%errorlevel%"
+rem  3 = pas configure ; 2/4 (--fail-on-error) et 1 = voir :erreur.
+rem  Comparaison EXACTE : "if errorlevel 3" voudrait dire "3 ou plus"
+rem  et confondrait le code 4 (collecte partielle) avec "a configurer".
+if "%RC%"=="3" goto :config_a_finir
+if not "%RC%"=="0" goto :erreur
+goto :fin
+:sansargs
 
 rem Sans argument : analyse puis ouverture du tableau.
 "%PY%" -m backup_monitor run

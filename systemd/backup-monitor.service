@@ -5,7 +5,10 @@ After=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=__PROJET__
-ExecStart=__PROJET__/venv/bin/python -m backup_monitor run
+# --fail-on-error : l'unité passe « failed » quand des backups sont en
+# erreur/manquants (code 2) ou que la collecte est partielle (code 4) —
+# visible via systemctl --user status / list-units --failed.
+ExecStart=__PROJET__/venv/bin/python -m backup_monitor run --fail-on-error
 # Durcissement : aucun besoin d'écrire ailleurs que dans le dossier du projet
 ProtectSystem=strict
 ReadWritePaths=__PROJET__
