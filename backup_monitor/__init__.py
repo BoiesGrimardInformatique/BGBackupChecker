@@ -1,5 +1,6 @@
-"""backup-monitor — analyse en lecture seule des courriels de résultats
-Macrium Reflect et Retrospect reçus dans une boîte Exchange, et génération
+"""backup-monitor — analyse en lecture seule des courriels de résultats de
+sauvegarde (Macrium Reflect, Retrospect, SQL Server Agent, Proxmox Backup
+Server, scripts personnalisés) reçus dans une boîte Exchange, et génération
 d'un tableau de bord HTML local. Aucun courriel n'est modifié, déplacé ni
 marqué comme lu."""
 

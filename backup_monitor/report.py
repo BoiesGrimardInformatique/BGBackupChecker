@@ -631,12 +631,12 @@ def render(cfg: dict, events: list[BackupEvent], states: list[JobState],
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="{refresh}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sauvegardes — Macrium &amp; Retrospect</title>
+<title>Sauvegardes — tableau de bord</title>
 <style>{_CSS}</style>
 </head>
 <body>
 <main>
-<h1>État des sauvegardes — Macrium &amp; Retrospect</h1>
+<h1>État des sauvegardes</h1>
 <p class="meta">
 <span class="chip" id="fresh"><span class="ic">●</span>
 généré {now.strftime("%Y-%m-%d %H:%M")} · <span class="rel"></span></span>
