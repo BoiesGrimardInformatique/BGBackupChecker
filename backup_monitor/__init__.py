@@ -18,6 +18,11 @@ STATUS_SUCCESS = "succes"
 STATUS_UNKNOWN = "inconnu"
 STATUS_MISSING = "manquant"
 
+# Du plus grave au moins grave — ordre partagé par la vue par client du
+# tableau et par l'agrégation « pire état du jour » de l'historique.
+SEVERITY = [STATUS_ERROR, STATUS_MISSING, STATUS_WARNING, STATUS_UNKNOWN,
+            STATUS_SUCCESS]
+
 # Code de sortie signalant « pas encore configuré » : fichier config.yaml
 # absent, ou aucun dossier à surveiller choisi. Distinct d'une vraie panne
 # (code 1) pour que les lanceurs (lancer.bat, install.bat) puissent enchaîner

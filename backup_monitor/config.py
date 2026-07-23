@@ -18,6 +18,10 @@ DEFAULTS = {
         "verify_ssl": True,
     },
     "outlook": {"store": ""},
+    # Cache local des courriels déjà lus (mode Outlook) : seuls les nouveaux
+    # courriels sont lus en entier à chaque cycle. Fichier PAR POSTE (profil
+    # local, jamais sur la clé USB) ; dir vide = emplacement par défaut.
+    "cache": {"enabled": True, "dir": ""},
     "imap": {"server": "", "port": 993, "ssl": True},
     "folders": {"macrium": [], "retrospect": []},
     # Dossiers parents explorés récursivement : chaque sous-dossier est un
@@ -33,6 +37,10 @@ DEFAULTS = {
     # Phase de rodage : autotest complet à chaque utilisation, journalisé
     # dans autotest.log. Passer on_each_run à false à la version finale.
     "autotest": {"on_each_run": True},
+    # Historique quotidien (historique.json) : pire état de chaque jour par
+    # tâche suivie, affiché dans le tableau (bande des derniers jours + taux
+    # de réussite sur 30 jours). Seule la commande « run » l'écrit.
+    "history": {"enabled": True, "keep_days": 90, "show_days": 14},
     "expected_jobs": [],
     "clients": [],
     # Notifications sortantes sur TRANSITION d'état (jamais à chaque cycle).

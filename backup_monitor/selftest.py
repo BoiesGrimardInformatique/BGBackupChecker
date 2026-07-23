@@ -7,9 +7,12 @@ import re
 import tempfile
 from datetime import datetime, timedelta
 
-from . import (RawMail, STATUS_ERROR, STATUS_MISSING, STATUS_SUCCESS,
-               STATUS_UNKNOWN, STATUS_WARNING, load_timezone)
+from . import (JobState, RawMail, STATUS_ERROR, STATUS_MISSING,
+               STATUS_SUCCESS, STATUS_UNKNOWN, STATUS_WARNING, load_timezone)
 from .attachments import extract, gate, looks_like_text, sender_allowed
+from .history import HISTORY_FILE, success_rate
+from .history import update as hist_update
+from .mailcache import MailCache, fingerprint
 from .notify import check_and_notify, transitions
 from .parsers import analyze, job_states, suggest_jobs
 from .report import render, write
@@ -200,6 +203,66 @@ def _checks() -> list[tuple[str, bool, str]]:
               n_sent == 0 and n_warn == []
               and os.path.exists(os.path.join(tmpdir, "dernier-etat.json")))
 
+        # Historique quotidien : pire état par jour, mémorisé entre les runs
+        hcfg = {**cfg, "history": {"enabled": True, "keep_days": 90,
+                                   "show_days": 14},
+                "expected_jobs": [
+                    {"name": "Tâche H", "product": "macrium",
+                     "match": "SRV-H", "every_hours": 24, "grace_hours": 6}]}
+        hist_mails = [
+            RawMail("Macrium Reflect Backup - SRV-H", "b@test.local",
+                    now - timedelta(hours=2),
+                    "Computer: SRV-H\nBackup completed successfully",
+                    "Backups/Macrium", "macrium"),
+            RawMail("Macrium Reflect Backup - SRV-H", "b@test.local",
+                    now - timedelta(hours=26),
+                    "Computer: SRV-H\nBackup aborted",
+                    "Backups/Macrium", "macrium"),
+        ]
+        h_ev = analyze(hcfg, hist_mails)
+        h = hist_update(hcfg, job_states(hcfg, h_ev), h_ev, now)
+        jours = h["taches"]["tache:Tâche H"]["jours"]
+        d_old = (now - timedelta(hours=26)).strftime("%Y-%m-%d")
+        d_new = (now - timedelta(hours=2)).strftime("%Y-%m-%d")
+        check("Historique : chaque courriel compte sur SON jour",
+              jours.get(d_old) == STATUS_ERROR
+              and jours.get(d_new) == STATUS_SUCCESS, str(jours))
+        # Aggravation le même jour : le pire état du jour est retenu, et un
+        # succès ultérieur du même jour ne l'efface pas.
+        bad = [JobState(name="Tâche H", product="macrium",
+                        status=STATUS_ERROR)]
+        good = [JobState(name="Tâche H", product="macrium",
+                         status=STATUS_SUCCESS)]
+        h = hist_update(hcfg, bad, [], now)
+        h = hist_update(hcfg, good, [], now)
+        today = now.strftime("%Y-%m-%d")
+        check("Historique : le pire état du jour est retenu",
+              h["taches"]["tache:Tâche H"]["jours"][today] == STATUS_ERROR,
+              str(h["taches"]["tache:Tâche H"]["jours"]))
+        check("Historique : fichier écrit",
+              os.path.exists(os.path.join(tmpdir, HISTORY_FILE)))
+        # Taille automatique : un jour au-delà de keep_days disparaît.
+        hist_update(hcfg, bad, [], now - timedelta(days=200))
+        h = hist_update(hcfg, good, [], now)
+        old_day = (now - timedelta(days=200)).strftime("%Y-%m-%d")
+        check("Historique : jours au-delà de keep_days élagués",
+              old_day not in h["taches"]["tache:Tâche H"]["jours"])
+        ok30, seen30 = success_rate(
+            {today: STATUS_SUCCESS, d_old: STATUS_ERROR,
+             "2000-01-01": STATUS_SUCCESS}, now)
+        check("Historique : taux de réussite limité aux 30 derniers jours",
+              ok30 == 1 and seen30 == 2, f"{ok30}/{seen30}")
+        # Sans expected_jobs : suivi par couple machine/tâche observé.
+        h_free = hist_update({**hcfg, "expected_jobs": []}, [], h_ev, now)
+        check("Historique sans expected_jobs : couple machine/tâche suivi",
+              any(j.get("nom", "").startswith("SRV-H")
+                  for j in h_free["taches"].values()),
+              str(list(h_free["taches"])))
+        # Rendu : section présente avec historique, absente sans.
+        page_h = render(hcfg, h_ev, job_states(hcfg, h_ev), None, h)
+        check("Tableau : section Historique (bande des jours + taux)",
+              'id="historique"' in page_h and "Taux 30 j" in page_h)
+
         # suggest-jobs : fréquence estimée à partir des courriels observés
         sj_mails = [
             RawMail("Macrium Reflect Backup - SRV-TEST", "b@test.local",
@@ -215,6 +278,45 @@ def _checks() -> list[tuple[str, bool, str]]:
               and re.search(sugs[0]["match"],
                             "Backup SRV-TEST Image C") is not None,
               str(sugs))
+
+        # Cache de collecte : contenu réutilisé entre les cycles, élagage des
+        # courriels disparus, invalidation sur changement de configuration.
+        cpath = os.path.join(tmpdir, "cache", "cache-test.json")
+        c1 = MailCache(cpath, "fp1").load()
+        check("Cache : courriel inconnu au premier passage",
+              c1.get("id-1") is None)
+        c1.put("id-1", "Sujet", "exp@test.local", "corps X", "", "note")
+        c1.save()
+        c2 = MailCache(cpath, "fp1").load()
+        got = c2.get("id-1")
+        check("Cache : contenu retrouvé au cycle suivant",
+              got is not None and got["corps"] == "corps X"
+              and got["sujet"] == "Sujet")
+        c2.put("id-2", "S2", "e@test.local", "c2", "", "")
+        c2.save()  # id-1 revu (get) et id-2 ajouté : les deux gardés
+        c3 = MailCache(cpath, "fp1").load()
+        check("Cache : persistance entre exécutions",
+              c3.get("id-2") is not None and "id-1" in c3.entries)
+        c3.save()  # id-1 jamais revu pendant ce « run » → élagué
+        c4 = MailCache(cpath, "fp1").load()
+        check("Cache : courriel disparu (supprimé/déplacé) élagué",
+              "id-1" not in c4.entries and "id-2" in c4.entries)
+        c5 = MailCache(cpath, "fp2").load()
+        check("Cache : empreinte différente (pièces jointes) = cache vidé",
+              c5.get("id-2") is None)
+        with open(cpath, "w", encoding="utf-8") as fh:
+            fh.write("{corrompu")
+        c6 = MailCache(cpath, "fp1").load()
+        check("Cache : fichier corrompu = reparti à vide, sans erreur",
+              c6.entries == {})
+        cdis = MailCache(cpath, "fp1", enabled=False).load()
+        check("Cache désactivé : fichier purgé, aucune réutilisation",
+              not os.path.exists(cpath) and cdis.get("id-2") is None)
+        check("Cache : l'empreinte suit la config des pièces jointes",
+              fingerprint({"attachments": {"enabled": True}})
+              == fingerprint({"attachments": {"enabled": True}})
+              and fingerprint({"attachments": {"enabled": True}})
+              != fingerprint({"attachments": {"enabled": False}}))
 
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
@@ -250,6 +352,8 @@ def _checks() -> list[tuple[str, bool, str]]:
             check(f"Tableau : {label}", needle in page)
         check("Tableau : aucun script externe",
               "http://" not in page and "https://" not in page)
+        check("Tableau : pas de section Historique sans données",
+              'id="historique"' not in page)
 
     # Configuration d'exemple (si PyYAML est présent — toujours le cas
     # après install.bat ; peut manquer sur un poste de développement)

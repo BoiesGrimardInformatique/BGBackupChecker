@@ -101,6 +101,28 @@ d'erreur à déchiffrer, on est guidé vers le choix des dossiers.
 - **Mode continu ponctuel** :
   `venv\Scripts\python -m backup_monitor run --watch 300`
 
+## Performance de collecte (cache local, mode Outlook)
+
+Le principal poste de coût d'un cycle est la lecture des corps de courriels
+via COM : chaque corps force Outlook à charger l'élément complet, et la boîte
+en contient vite plus d'un millier dans la fenêtre d'analyse. L'outil garde
+donc un **cache par poste** du contenu déjà lu : au cycle suivant, un courriel
+déjà vu ne coûte que trois propriétés légères — seuls les **nouveaux**
+courriels sont lus en entier.
+
+- Le fichier (`cache-courriels-*.json`) vit dans le **profil du poste**
+  (`%LOCALAPPDATA%\backup-monitor` sous Windows, `~/.cache/backup-monitor`
+  ailleurs) — **jamais sur la clé USB**, qui continue de ne porter aucun
+  contenu de courriel.
+- Il contient sujet/expéditeur/corps des courriels de la fenêtre d'analyse :
+  si même cela est trop sensible, `cache.enabled: false` dans `config.yaml`
+  (le fichier existant est alors supprimé au prochain lancement). Le
+  supprimer à la main est toujours sans risque : il se reconstruit.
+- Un courriel supprimé ou déplacé disparaît du cache au cycle suivant ;
+  changer la section `attachments` vide le cache (le texte extrait en
+  dépend) ; recalibrer `parsers` n'exige **pas** de le vider — le classement
+  se refait à chaque exécution sur le contenu brut.
+
 ## Pièces jointes (optionnel, désactivé par défaut)
 
 Les produits joignent souvent leur rapport en `.txt`/`.log`, `.html` ou
@@ -210,6 +232,27 @@ Pour ne pas écrire ce bloc à la main : `lancer.bat suggest-jobs` (ou
 `python -m backup_monitor suggest-jobs`) regroupe les courriels observés par
 machine/tâche, estime la fréquence d'envoi et imprime un bloc `expected_jobs`
 prêt à coller dans `config.yaml` — il reste à ajuster noms et tolérances.
+
+## Historique et tendances
+
+Le tableau ne montre que la fenêtre d'analyse (`days_back`) : sans mémoire,
+impossible de voir qu'une tâche échoue une nuit sur trois ou qu'un client se
+dégrade depuis une semaine. Chaque exécution de `run` mémorise donc le **pire
+état de chaque jour** par tâche suivie dans `historique.json` (fichier local,
+à côté de `config.yaml`). Le tableau affiche alors une section **Historique** :
+une bande des derniers jours par tâche (`history.show_days`, 14 par défaut),
+le nombre de jours en échec et le **taux de réussite sur 30 jours** — les
+tâches en difficulté remontent en premier.
+
+- Avec `expected_jobs` : chaque courriel correspondant compte sur **son** jour
+  de réception — le premier passage remplit donc l'historique sur toute la
+  fenêtre d'analyse — et l'état courant (y compris « Manquant », qui n'a pas
+  de courriel) compte sur le jour de l'exécution.
+- Sans `expected_jobs` : chaque couple machine/tâche observé est suivi de la
+  même façon.
+- Rétention : `history.keep_days` (90 jours par défaut) ; désactivable avec
+  `history.enabled: false`. Seule la commande `run` écrit l'historique —
+  `diagnose` et `test` n'y touchent pas.
 
 ## Notifications (optionnel, désactivé par défaut)
 
