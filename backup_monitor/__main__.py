@@ -11,6 +11,10 @@
   python -m backup_monitor find MOT [MOT…]  # ressortir les courriels
                                           # contenant ces mots (sujet, corps,
                                           # pièces jointes), avec extrait
+  python -m backup_monitor rapport        # rapport-diagnostic.txt : tout ce
+                                          # qu'il faut pour faire ajuster
+                                          # l'outil (autotest, comptes,
+                                          # inconnus, journaux)
   python -m backup_monitor folders        # liste les dossiers de la boîte
   python -m backup_monitor test           # teste la connexion
   python -m backup_monitor set-password   # mot de passe (modes ews/imap seulement)
@@ -306,8 +310,8 @@ def main() -> None:
                                      description=__doc__)
     parser.add_argument("command", nargs="?", default="run",
                         choices=["run", "setup", "diagnose", "suggest-jobs",
-                                 "find", "selftest", "set-password",
-                                 "folders", "test"])
+                                 "find", "rapport", "selftest",
+                                 "set-password", "folders", "test"])
     parser.add_argument("terms", nargs="*", metavar="MOT",
                         help="mots-clés de la commande find (tous requis, "
                              "insensible à la casse)")
@@ -411,6 +415,14 @@ def main() -> None:
 
     if args.command == "find":
         _find(cfg, password, args.terms)
+        return
+
+    if args.command == "rapport":
+        from . import rapport
+        path = rapport.generate(cfg, password, _fetcher(cfg))
+        print(f"Rapport écrit : {path}")
+        print("RELIRE le fichier avant de le transmettre (noms de clients, "
+              "extraits de courriels).")
         return
 
     if args.command == "test":

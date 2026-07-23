@@ -12,6 +12,7 @@ selftest.html
 dernier-etat.json
 historique.json
 autotest.log
+rapport-diagnostic.txt
 
 # Cache hors-ligne des dépendances (généré par preparer-cle.bat)
 wheels/

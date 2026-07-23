@@ -345,6 +345,39 @@ Sous Linux, `install.sh` et `systemd/installer-timer.sh` couvrent ce scénario.
   batterie tourne en CI GitHub Actions à chaque poussée. À la version
   finale, passer `on_each_run` à `false`.
 
+## Envoyer un diagnostic (rapport-diagnostic.bat)
+
+Pour faire ajuster l'outil (motifs mal calibrés, courriels non reconnus…)
+sans accès au poste : **double-cliquer `rapport-diagnostic.bat`** (ou
+`lancer.bat rapport`). Il génère `rapport-diagnostic.txt` — environnement,
+résultat de l'autotest, configuration surveillée, comptes par produit/état,
+taux d'extraction, exemples par produit, cas d'échec des systèmes aux motifs
+encore déduits (SQL Server Agent, Proxmox, scripts), liste des courriels
+**non reconnus** avec extraits, état des tâches attendues et queue des
+journaux — puis l'ouvre dans le Bloc-notes.
+
+**Aucun envoi automatique** : le fichier reste local. Il contient des noms
+de clients/machines et des extraits de courriels de sauvegarde — **le relire
+avant de le transmettre** (il n'est jamais versionné : `.gitignore`).
+
+## Mise à jour depuis le ZIP du dépôt
+
+Si votre méthode de mise à jour est « supprimer le dossier puis re-extraire
+le ZIP », **préservez d'abord ces fichiers locaux** (ils sont à la racine du
+dossier et ne sont pas dans le ZIP) :
+
+| Fichier | Rôle | Si perdu |
+|---|---|---|
+| `config.yaml` | Toute votre configuration | À refaire avec `setup` + réglages manuels |
+| `historique.json` | Historique quotidien des tâches | La section Historique repart de la fenêtre d'analyse |
+| `dernier-etat.json` | Mémoire des notifications | Risque d'une salve de notifications au run suivant |
+
+Le plus simple : copier ces trois fichiers ailleurs, re-extraire le ZIP,
+puis les remettre. (`tableau-backups.html` et les journaux se régénèrent
+seuls ; le cache de collecte vit dans le profil du poste et survit à la
+mise à jour.) Après chaque mise à jour, l'autotest tourne à la première
+commande — une régression se verrait immédiatement.
+
 ## Dépannage
 
 | Symptôme | Piste |

@@ -368,6 +368,43 @@ def _checks() -> list[tuple[str, bool, str]]:
         check("find : « echec » trouve « Échec », extrait original conservé",
               "Échec" in ctx2, ctx2)
 
+        # Rapport diagnostic : généré hors-ligne avec un faux connecteur,
+        # sections clés présentes (inconnus avec extrait, cas à confirmer).
+        import types
+        from .rapport import RAPPORT_FILE, generate as rapport_generate
+        r_mails = [
+            RawMail("Macrium Reflect Backup - SRV-R", "b@test.local", now,
+                    "Computer: SRV-R\nBackup completed successfully",
+                    "Backups/Macrium", "macrium"),
+            RawMail("Bulletin mensuel du fournisseur", "info@news.local",
+                    now, "Promotion sur les licences.",
+                    "Backups/Macrium", "macrium"),
+            RawMail("vzdump backup status (h1.local): backup failed",
+                    "pve@test.local", now, "TASK ERROR: job failed",
+                    "Sauvegardes/Client PBS", "auto", client="Client PBS"),
+        ]
+        r_cfg = {**cfg,
+                 "exchange": {"method": "outlook"}, "outlook": {"store": ""},
+                 "client_folders": [], "folders": {"macrium": ["B/M"]}}
+        fake_fetch = types.SimpleNamespace(
+            fetch=lambda c, p: (r_mails, ["[macrium] B/M : 1 courriel(s) "
+                                          "illisible(s) ignoré(s)"]))
+        r_path = rapport_generate(r_cfg, None, fake_fetch,
+                                  autotest_result=(0, 1, []))
+        r_text = open(r_path, encoding="utf-8").read()
+        check("Rapport : fichier généré (commande rapport)",
+              r_path.endswith(RAPPORT_FILE) and os.path.exists(r_path))
+        check("Rapport : courriel non reconnu listé avec extrait",
+              "NON RECONNUS (1)" in r_text
+              and "Bulletin mensuel du fournisseur" in r_text
+              and "Promotion sur les licences" in r_text)
+        check("Rapport : cas d'échec PBS à confirmer présent",
+              "[pbs]" in r_text and "backup failed" in r_text)
+        check("Rapport : sections environnement/autotest/collecte/journaux",
+              all(s in r_text for s in
+                  ("-- Environnement --", "-- Autotest --", "-- Collecte --",
+                   "ILLISIBLE", "-- Journal backup-monitor.log")))
+
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
               not sender_allowed("pirate@evil.com", ["backup@test.local"]))
