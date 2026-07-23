@@ -1,7 +1,8 @@
-# backup-monitor — Surveillance des courriels de backup Macrium & Retrospect
+# backup-monitor — Surveillance des courriels de résultats de sauvegarde
 
 Outil local qui lit **en lecture seule** les courriels de résultats de
-sauvegarde (Macrium Reflect et Retrospect), les classe (succès / avertissement
+sauvegarde — Macrium Reflect, Retrospect, SQL Server Agent, Proxmox Backup
+Server et scripts personnalisés —, les classe (succès / avertissement
 / erreur), détecte les **backups manquants** et génère un **tableau de bord
 HTML local** auto-actualisé.
 
