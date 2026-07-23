@@ -460,9 +460,12 @@ def _events_table(events: list[BackupEvent], max_rows: int) -> str:
                 "trouvé dans la fenêtre d'analyse.</p></div>")
     rows = []
     for ev in events[:max_rows]:
+        # L'extrait du corps et la note des pièces jointes font partie du
+        # texte cherchable : taper un mot-clé (« VSS », un nom de volume…)
+        # ressort aussi les courriels qui ne l'ont que dans leur contenu.
         haystack = " ".join(
             [ev.subject, ev.machine, ev.job, ev.sender, ev.folder,
-             ev.client]).lower()
+             ev.client, ev.excerpt, ev.attachments_note]).lower()
         accent = ' accent-critical' if ev.status == STATUS_ERROR else ""
         rows.append(
             f'<tr class="row{accent}" data-produit="{_esc(ev.product)}" '
@@ -585,8 +588,9 @@ def _filters(clients: list[str]) -> str:
         '<div class="filters">'
         + seg("produit", produits) + seg("etat", etats) + sel
         + '<input type="search" id="recherche" '
-          'placeholder="Client, machine, tâche, sujet…" '
-          'aria-label="Recherche dans les courriels">'
+          'placeholder="Mot-clé : client, machine, sujet, contenu…" '
+          'aria-label="Recherche dans les courriels (y compris l\'extrait '
+          'du contenu)">'
         + '<span class="count" id="nb-affiches"></span>'
         + "</div>"
     )
@@ -617,6 +621,8 @@ def render(cfg: dict, events: list[BackupEvent], states: list[JobState],
 
     refresh_label = (f"{refresh // 60} min" if refresh % 60 == 0
                      else f"{refresh} s")
+    title = _esc(str(cfg["report"].get("title") or "").strip()
+                 or "État des sauvegardes")
     clients: list[str] = []
     for src in ([s.client for s in states] + [e.client for e in events]):
         name = src or NO_CLIENT
@@ -631,12 +637,12 @@ def render(cfg: dict, events: list[BackupEvent], states: list[JobState],
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="{refresh}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sauvegardes — tableau de bord</title>
+<title>{title}</title>
 <style>{_CSS}</style>
 </head>
 <body>
 <main>
-<h1>État des sauvegardes</h1>
+<h1>{title}</h1>
 <p class="meta">
 <span class="chip" id="fresh"><span class="ic">●</span>
 généré {now.strftime("%Y-%m-%d %H:%M")} · <span class="rel"></span></span>

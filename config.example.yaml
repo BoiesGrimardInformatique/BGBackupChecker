@@ -151,6 +151,9 @@ report:
   refresh_seconds: 300
   # Nombre max de courriels listés dans le tableau détaillé
   max_rows: 100
+  # Titre du tableau (en-tête et onglet du navigateur) — personnalisable
+  # par site ou par entreprise
+  title: "État des sauvegardes"
 
 # Motifs de détection (expressions régulières).
 # Ordre d'évaluation : erreur > avertissement > succès. À CALIBRER avec de

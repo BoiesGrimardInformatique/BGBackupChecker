@@ -12,7 +12,7 @@ from . import (JobState, RawMail, STATUS_ERROR, STATUS_MISSING,
 from .attachments import extract, gate, looks_like_text, sender_allowed
 from .history import HISTORY_FILE, success_rate
 from .history import update as hist_update
-from .mailcache import MailCache, fingerprint
+from .mailcache import MailCache, fingerprint, open_cache
 from .notify import check_and_notify, transitions
 from .parsers import analyze, job_states, suggest_jobs
 from .report import render, write
@@ -312,11 +312,35 @@ def _checks() -> list[tuple[str, bool, str]]:
         cdis = MailCache(cpath, "fp1", enabled=False).load()
         check("Cache désactivé : fichier purgé, aucune réutilisation",
               not os.path.exists(cpath) and cdis.get("id-2") is None)
+        # Option --no-cache (_refresh) : contenu existant ignoré au
+        # chargement, mais le cache est reconstruit par save().
+        ccfg = {"cache": {"enabled": True, "dir": "cache"}, "attachments": {},
+                "_dir": tmpdir, "_path": os.path.join(tmpdir, "c.yaml")}
+        cr = open_cache(ccfg)
+        cr.put("id-R", "S", "e@test.local", "corps", "", "")
+        cr.save()
+        refreshed = open_cache({**ccfg,
+                                "cache": {"enabled": True, "dir": "cache",
+                                          "_refresh": True}})
+        ignore_ok = refreshed.get("id-R") is None  # relecture forcée
+        refreshed.put("id-R", "S", "e@test.local", "corps", "", "")
+        refreshed.save()
+        rebuilt_ok = open_cache(ccfg).get("id-R") is not None
+        check("Option --no-cache : contenu ignoré mais cache reconstruit",
+              ignore_ok and rebuilt_ok)
         check("Cache : l'empreinte suit la config des pièces jointes",
               fingerprint({"attachments": {"enabled": True}})
               == fingerprint({"attachments": {"enabled": True}})
               and fingerprint({"attachments": {"enabled": True}})
               != fingerprint({"attachments": {"enabled": False}}))
+
+        # Commande find : extrait de contexte autour du mot-clé
+        from .__main__ import _context_excerpt
+        ctx = _context_excerpt(
+            "Journal de la nuit.\nErreur VSS 0x8004231f pendant l'image du "
+            "volume C: — nouvelle tentative planifiée.", "vss")
+        check("find : extrait de contexte autour du mot-clé",
+              "VSS" in ctx and "0x8004231f" in ctx and "\n" not in ctx, ctx)
 
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
@@ -354,6 +378,18 @@ def _checks() -> list[tuple[str, bool, str]]:
               "http://" not in page and "https://" not in page)
         check("Tableau : pas de section Historique sans données",
               'id="historique"' not in page)
+        # La recherche du tableau couvre aussi l'extrait du contenu : un mot
+        # présent seulement dans le CORPS doit être dans data-texte.
+        row_attrs = re.findall(r'data-texte="([^"]*)"', page)
+        check("Tableau : recherche par mot-clé du contenu (data-texte)",
+              any("contenu quelconque" in a for a in row_attrs),
+              str(row_attrs)[:200])
+        # Titre configurable (report.title), échappé
+        page_t = render({**cfg, "report": {**cfg["report"],
+                                           "title": "Sauvegardes <BG & Cie>"}},
+                        events, states)
+        check("Tableau : titre personnalisé (report.title) échappé",
+              "Sauvegardes &lt;BG &amp; Cie&gt;</h1>" in page_t)
 
     # Configuration d'exemple (si PyYAML est présent — toujours le cas
     # après install.bat ; peut manquer sur un poste de développement)

@@ -102,6 +102,36 @@ d'erreur à déchiffrer, on est guidé vers le choix des dossiers.
 - **Mode continu ponctuel** :
   `venv\Scripts\python -m backup_monitor run --watch 300`
 
+## Recherche par mots-clés et options pratiques
+
+**Ressortir les courriels contenant un mot** — deux façons :
+
+- **Commande `find`** : `lancer.bat find VSS` (ou
+  `python -m backup_monitor find VSS`) liste tous les courriels de la fenêtre
+  d'analyse contenant le mot — dans le **sujet, le corps, les pièces jointes
+  analysées, le dossier, le client ou l'expéditeur** — avec la date, le
+  dossier et un extrait autour du mot. Plusieurs mots = tous requis
+  (`find VSS "Comptable Plus"` cible un mot chez un client) ; insensible à la
+  casse. Combiner avec `--days 60` pour chercher plus loin que la fenêtre
+  courante.
+- **Recherche du tableau** : le champ de recherche du tableau HTML couvre
+  maintenant aussi l'**extrait du contenu** de chaque courriel (500 premiers
+  caractères) et la note des pièces jointes — taper « VSS » y ressort donc
+  aussi les courriels qui n'ont le mot que dans leur corps.
+
+**Options de ligne de commande** (utilisables aussi via `lancer.bat`, qui
+transmet les arguments) :
+
+| Option | Effet |
+|---|---|
+| `--days N` | Fenêtre d'analyse ponctuelle (jours) pour CETTE exécution, sans modifier `config.yaml` — pratique pour un `diagnose`, un `find` ou un `run` plus profond |
+| `--open` | Ouvre le tableau dans le navigateur après l'analyse (`run`) |
+| `--no-cache` | Ignore le cache de collecte et relit tout depuis Outlook (le cache est reconstruit) — utile si un contenu semble périmé |
+| `--fail-on-warning` | Avec `--fail-on-error` : les avertissements comptent aussi comme un problème (code 2) |
+
+Le **titre du tableau** est personnalisable par site ou par entreprise :
+`report.title` dans `config.yaml` (en-tête et onglet du navigateur).
+
 ## Performance de collecte (cache local, mode Outlook)
 
 Le principal poste de coût d'un cycle est la lecture des corps de courriels
@@ -276,7 +306,8 @@ systemd) : `0` = tout va bien, `1` = panne de l'outil, `2` = backups en
 erreur ou manquants, `3` = pas encore configuré, `4` = collecte partielle
 (dossiers ou courriels illisibles). Le « Dernier résultat » de la tâche
 planifiée devient donc directement exploitable par un RMM. Ajouter
-`--fail-on-unknown` pour que les courriels non reconnus comptent aussi.
+`--fail-on-unknown` pour que les courriels non reconnus comptent aussi, et
+`--fail-on-warning` pour que les avertissements comptent également.
 
 ## Modes de repli : EWS / IMAP (accès serveur direct, sans Outlook)
 
