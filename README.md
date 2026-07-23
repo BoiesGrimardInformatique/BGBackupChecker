@@ -254,6 +254,12 @@ Sous Linux, `install.sh` et `systemd/installer-timer.sh` couvrent ce scénario.
   tableau. Le fichier est tronqué automatiquement au-delà de 1 Mo.
 - **`selftest`** : autotest hors-ligne rejouable à tout moment (après une mise
   à jour de Python, par exemple).
+- **Phase de rodage** : tant que `autotest.on_each_run` vaut `true` (le
+  défaut), l'autotest complet tourne à **chaque** utilisation de l'outil et
+  journalise son résultat dans `autotest.log` (une ligne par usage, détail
+  des échecs). Une régression se voit donc dès la commande suivante. La même
+  batterie tourne en CI GitHub Actions à chaque poussée. À la version
+  finale, passer `on_each_run` à `false`.
 
 ## Dépannage
 

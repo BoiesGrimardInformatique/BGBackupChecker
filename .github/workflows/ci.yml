@@ -1,0 +1,31 @@
+# CI : chaque poussée et chaque PR passent l'autotest hors-ligne (le même
+# que « python -m backup_monitor selftest » sur les postes). Par conception,
+# l'autotest n'a besoin ni d'Outlook ni du réseau — il tourne donc tel quel
+# sur les exécuteurs GitHub. Le journal complet de chaque vérification reste
+# consultable dans l'onglet Actions.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 = plancher supporté ; 3.13 = ce que les postes récents
+        # installent depuis python.org.
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Dépendances (pywin32 ignoré hors Windows via son marqueur)
+        run: python -m pip install -r requirements.txt
+      - name: Compilation de tous les modules
+        run: python -m compileall -q backup_monitor
+      - name: Autotest hors-ligne (36+ vérifications)
+        run: python -m backup_monitor selftest

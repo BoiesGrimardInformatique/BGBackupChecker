@@ -61,6 +61,42 @@ def _log(cfg, message: str) -> None:
         pass
 
 
+def _autotest_guard(cfg, command: str) -> None:
+    """Phase de rodage : l'autotest complet (celui de « selftest ») tourne à
+    CHAQUE utilisation de l'outil et son résultat est journalisé dans
+    autotest.log — une régression se voit donc dès la commande suivante,
+    pas au prochain lancement manuel de selftest. À la version finale,
+    désactiver avec « autotest: { on_each_run: false } » dans config.yaml."""
+    from . import __version__, selftest
+    t0 = time.monotonic()
+    try:
+        failed, total, details = selftest.run_quiet()
+    except Exception as exc:  # l'autotest lui-même ne doit jamais bloquer
+        failed, total, details = 1, 1, [f"autotest impossible : {exc}"]
+    line = (f"{datetime.now():%Y-%m-%d %H:%M:%S} v{__version__} "
+            f"commande={command} autotest {total - failed}/{total} "
+            f"{'OK' if not failed else 'ÉCHEC'} "
+            f"[{time.monotonic() - t0:.1f} s]")
+    path = os.path.join(cfg["_dir"], "autotest.log")
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                tail = fh.readlines()[-200:]
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.writelines(tail)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+            for d in details:
+                fh.write(f"    ÉCHEC : {d}\n")
+    except OSError:
+        pass
+    if failed:
+        print(f"AVERTISSEMENT : autotest {failed}/{total} vérification(s) "
+              "en échec — détails dans autotest.log. L'analyse continue, "
+              "mais les résultats sont suspects.", file=sys.stderr)
+        _log(cfg, f"AUTOTEST EN ÉCHEC ({failed}/{total}) — voir autotest.log")
+
+
 def _run_once(cfg, password, strict_unknown: bool = False) -> tuple[int, int]:
     """Une analyse complète. Retourne (problèmes métier, dossiers illisibles) :
     le premier compte les erreurs/manquants (+ inconnus si strict_unknown),
@@ -208,6 +244,11 @@ def main() -> None:
     cfg = load_config(cfg_path,
                       require_folders=(args.command in
                                        ("run", "diagnose", "suggest-jobs")))
+
+    # Phase de rodage : autotest journalisé à chaque utilisation (voir
+    # _autotest_guard). La commande selftest est déjà l'autotest lui-même.
+    if (cfg.get("autotest") or {}).get("on_each_run", True):
+        _autotest_guard(cfg, args.command)
 
     method = cfg["exchange"]["method"].lower()
 
