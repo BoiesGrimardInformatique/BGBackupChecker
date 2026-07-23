@@ -10,6 +10,7 @@ tableau-backups.html
 backup-monitor.log
 selftest.html
 dernier-etat.json
+autotest.log
 
 # Cache hors-ligne des dépendances (généré par preparer-cle.bat)
 wheels/

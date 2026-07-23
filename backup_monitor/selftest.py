@@ -290,3 +290,12 @@ def run() -> int:
     print(f"OK : {len(results)}/{len(results)} vérifications réussies. "
           "L'installation est fonctionnelle (hors connexion Outlook).")
     return 0
+
+
+def run_quiet() -> tuple[int, int, list[str]]:
+    """Variante silencieuse pour l'autotest à chaque utilisation (phase de
+    rodage) : retourne (échecs, total, détail des échecs) sans rien imprimer."""
+    results = _checks()
+    failed = [f"{name}" + (f" — {detail}" if detail else "")
+              for name, ok, detail in results if not ok]
+    return len(failed), len(results), failed

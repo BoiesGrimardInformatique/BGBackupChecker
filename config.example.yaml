@@ -95,6 +95,14 @@ expected_jobs:
     every_hours: 24
     grace_hours: 6
 
+# Phase de rodage : tant que l'outil n'est pas déclaré « version finale »,
+# l'autotest complet (36+ vérifications hors-ligne) tourne à CHAQUE
+# utilisation et journalise son résultat dans autotest.log — une régression
+# se voit dès la commande suivante. Coût : ~1 s par lancement.
+# À la version finale : passer on_each_run à false.
+autotest:
+  on_each_run: true
+
 # Notifications sortantes — désactivées par défaut. L'outil mémorise l'état
 # de chaque tâche (dernier-etat.json) et ne notifie que sur TRANSITION vers
 # un état surveillé (jamais à chaque cycle de 5 minutes). Le retour au succès

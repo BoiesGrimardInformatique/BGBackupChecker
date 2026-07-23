@@ -30,6 +30,9 @@ DEFAULTS = {
         "allowed_extensions": [".txt", ".log", ".htm", ".html", ".pdf"],
         "max_kb": 4096,
     },
+    # Phase de rodage : autotest complet à chaque utilisation, journalisé
+    # dans autotest.log. Passer on_each_run à false à la version finale.
+    "autotest": {"on_each_run": True},
     "expected_jobs": [],
     "clients": [],
     # Notifications sortantes sur TRANSITION d'état (jamais à chaque cycle).
