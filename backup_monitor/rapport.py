@@ -29,7 +29,7 @@ RAPPORT_FILE = "rapport-diagnostic.txt"
 # Systèmes dont les motifs d'échec sont déduits du modèle standard, jamais
 # confirmés sur de vrais courriels — leurs cas d'erreur observés sont donc
 # la section la plus précieuse du rapport.
-PRODUITS_A_CONFIRMER = ("sqlagent", "pbs", "script")
+PRODUITS_A_CONFIRMER = ("sqlagent", "pbs", "script", "cobian", "backupexec")
 
 
 def _tail(path: str, lines: int) -> list[str]:

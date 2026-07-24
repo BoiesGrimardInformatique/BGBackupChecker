@@ -63,32 +63,37 @@ def _entry(taches: dict, key: str, nom: str, client: str, produit: str) -> dict:
 
 def update(cfg: dict, states, events, now: datetime) -> dict:
     """Fusionne l'état courant dans l'historique (pire état par jour),
-    enregistre le fichier et retourne les données à jour pour le rendu."""
+    enregistre le fichier et retourne les données à jour pour le rendu.
+    Suivi UNIFIÉ : les tâches attendues (chaque courriel correspondant sur
+    SON jour + l'état courant sur le jour de l'exécution) ET chaque couple
+    machine/tâche observé non couvert par une expected_job — une liste
+    expected_jobs partielle ne limite plus l'historique à elle seule."""
     from .parsers import job_matches
     conf = cfg.get("history") or {}
     path = os.path.join(cfg["_dir"], HISTORY_FILE)
     data = load(path)
     taches = data["taches"]
     today = now.strftime("%Y-%m-%d")
-    if states:
-        matches = job_matches(cfg, events)
-        for s in states:
-            t = _entry(taches, f"tache:{s.name}", s.name, s.client, s.product)
-            for ev in matches.get(s.name, []):
-                day = ev.received.strftime("%Y-%m-%d")
-                t["jours"][day] = _worst(t["jours"].get(day), ev.status)
-            # L'état courant (dont « manquant », sans courriel) compte sur le
-            # jour de l'exécution : une tâche muette laisse une trace datée.
-            t["jours"][today] = _worst(t["jours"].get(today), s.status)
-    else:
-        for ev in events:
-            who = ev.client or ev.machine or ev.folder
-            what = ev.job or ev.machine or "courriels"
-            nom = f"{who} — {what}" if what != who else who
-            t = _entry(taches, f"{ev.product}:{who}:{what}", nom,
-                       ev.client, ev.product)
+    matches = job_matches(cfg, events)
+    claimed = {id(e) for evs in matches.values() for e in evs}
+    for s in states:
+        t = _entry(taches, f"tache:{s.name}", s.name, s.client, s.product)
+        for ev in matches.get(s.name, []):
             day = ev.received.strftime("%Y-%m-%d")
             t["jours"][day] = _worst(t["jours"].get(day), ev.status)
+        # L'état courant (dont « manquant », sans courriel) compte sur le
+        # jour de l'exécution : une tâche muette laisse une trace datée.
+        t["jours"][today] = _worst(t["jours"].get(today), s.status)
+    for ev in events:
+        if id(ev) in claimed:
+            continue  # déjà compté dans sa tâche attendue
+        who = ev.client or ev.machine or ev.folder
+        what = ev.job or ev.machine or "courriels"
+        nom = f"{who} — {what}" if what != who else who
+        t = _entry(taches, f"{ev.product}:{who}:{what}", nom,
+                   ev.client, ev.product)
+        day = ev.received.strftime("%Y-%m-%d")
+        t["jours"][day] = _worst(t["jours"].get(day), ev.status)
     _prune(data, now, int(conf.get("keep_days", 90)))
     _save(path, data)
     return data

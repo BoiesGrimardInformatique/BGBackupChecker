@@ -14,7 +14,7 @@ from .history import HISTORY_FILE, success_rate
 from .history import update as hist_update
 from .mailcache import MailCache, fingerprint, open_cache
 from .notify import check_and_notify, transitions
-from .parsers import analyze, job_states, suggest_jobs
+from .parsers import analyze, current_states, job_states, suggest_jobs
 from .report import render, write
 
 TZ = load_timezone("America/Toronto")
@@ -246,6 +246,92 @@ def _checks() -> list[tuple[str, bool, str]]:
         check("ProActive : le client du dossier reste prioritaire",
               pa_dossier[0].client == "Dossier Client",
               pa_dossier[0].client)
+
+        # Systèmes découverts dans un rapport diagnostic réel : Cobian
+        # Reflector (passait pour du Macrium à cause de « Reflector »),
+        # Backup Exec, proxmox-backup-client (Timer service), digest
+        # quotidien Retrospect, alerte d'espace disque Site Manager.
+        reels = [
+            RawMail("Backup Summum (SERVEUR-PC)", "b@test.local",
+                    now - timedelta(minutes=1),
+                    "This is an automatic mail message from Cobian "
+                    "Reflector. You will find the log files below this "
+                    "text. ** The backup is done. Errors: 0 **",
+                    "Sauvegardes/Fenêtres Summum", "auto",
+                    client="Fenêtres Summum"),
+            RawMail('Backup Exec Alert: Job Completed (Server: "SEA-MAIL") '
+                    '(Job: "Sauvegarde quotidienne")', "b@test.local",
+                    now - timedelta(minutes=2),
+                    "Job Completion Status: Successful",
+                    "Sauvegardes/Seanautic Marine", "auto",
+                    client="Seanautic Marine"),
+            RawMail("Timer service <root@JancorSV> bash /root/pbs.sh",
+                    "b@test.local", now - timedelta(minutes=3),
+                    "===== Starting backup: host/JancorSV =====\n"
+                    "Client name: JancorSV\nStarting backup protocol: Fri\n"
+                    "Duration: 42s\nEnd Time: Fri Jul 24 07:01:02 2026",
+                    "Sauvegardes/Jancor", "auto", client="Jancor"),
+            RawMail("Retrospect : état pour 24/07/2026", "b@test.local",
+                    now - timedelta(minutes=4),
+                    "Retrospect : état pour 24/07/2026 Sauvegardes "
+                    "interrompues par l'opérateur: 1",
+                    "Sauvegardes/Acco-Loisirs", "auto",
+                    client="Acco-Loisirs"),
+            RawMail("Sauvegarde: Site Manager Notification Email",
+                    "b@test.local", now - timedelta(minutes=5),
+                    "Disk Space Low Disk space on repository "
+                    "\\\\Sauvegarde\\Historiques\\MacRium has fallen below "
+                    "50 GB", "Sauvegardes/Hogue", "auto", client="Hogue"),
+        ]
+        rev = {e.subject: e for e in analyze(cfg, reels)}
+        cob = rev["Backup Summum (SERVEUR-PC)"]
+        check("Cobian Reflector : produit reconnu (plus « macrium »), "
+              "Errors: 0 = succès, machine et tâche extraites",
+              cob.product == "cobian" and cob.status == STATUS_SUCCESS
+              and cob.machine == "SERVEUR-PC" and cob.job == "Summum",
+              f"{cob.product}/{cob.status}/{cob.machine}/{cob.job}")
+        bex = rev['Backup Exec Alert: Job Completed (Server: "SEA-MAIL") '
+                  '(Job: "Sauvegarde quotidienne")']
+        check("Backup Exec : produit + succès + machine/tâche",
+              bex.product == "backupexec" and bex.status == STATUS_SUCCESS
+              and bex.machine == "SEA-MAIL"
+              and bex.job == "Sauvegarde quotidienne",
+              f"{bex.product}/{bex.status}/{bex.machine}/{bex.job}")
+        pbc = rev["Timer service <root@JancorSV> bash /root/pbs.sh"]
+        check("proxmox-backup-client : produit pbs, End Time = terminé, "
+              "machine extraite",
+              pbc.product == "pbs" and pbc.status == STATUS_SUCCESS
+              and pbc.machine == "JancorSV",
+              f"{pbc.product}/{pbc.status}/{pbc.machine}")
+        dig = rev["Retrospect : état pour 24/07/2026"]
+        check("Digest Retrospect : interrompue par l'opérateur = "
+              "avertissement",
+              dig.product == "retrospect"
+              and dig.status == STATUS_WARNING, f"{dig.product}/{dig.status}")
+        sml = rev["Sauvegarde: Site Manager Notification Email"]
+        check("Site Manager : Disk Space Low = avertissement Macrium",
+              sml.product == "macrium" and sml.status == STATUS_WARNING,
+              f"{sml.product}/{sml.status}")
+
+        # État unifié : une expected_job d'exemple (qui ne matche rien) ne
+        # masque plus les problèmes des tâches observées — c'était le cas
+        # réel : 2 tâches d'exemple « manquantes » et 271 erreurs invisibles
+        # dans les tuiles et la vue par client.
+        uni_cfg = {**cov_cfg, "expected_jobs": [
+            {"name": "Tâche exemple fantôme", "product": "macrium",
+             "match": "FANTOME-INEXISTANT", "every_hours": 24,
+             "grace_hours": 6}]}
+        uni_states = job_states(uni_cfg, cov_ev)
+        uni_page = render(uni_cfg, cov_ev, uni_states, None)
+        check("État unifié : une expected_job d'exemple ne masque plus les "
+              "erreurs des tâches observées (tuiles + vue client)",
+              'class="tile alert"' in uni_page
+              and 'data-client="Ruscio Studio"' in uni_page)
+        uni = current_states(uni_cfg, cov_ev, uni_states)
+        check("État unifié : tâches attendues ET observées présentes",
+              any(t["key"].startswith("tache:") for t in uni)
+              and any(not t["key"].startswith("tache:") for t in uni)
+              and any(t["etat"] == STATUS_ERROR for t in uni))
 
         # Motifs précompilés : une regex utilisateur invalide est ignorée
         # sans planter (les motifs valides continuent de classer), et une

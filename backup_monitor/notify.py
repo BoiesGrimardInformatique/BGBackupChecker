@@ -33,18 +33,13 @@ _LABELS = {
 }
 
 
-def _current_states(states, events) -> dict:
-    """État courant par tâche. Les tâches attendues (expected_jobs) sont la
-    source la plus fiable ; sans elles, on suit chaque couple machine/tâche
-    vu dans les courriels (clé stable, indépendante du sujet daté)."""
-    if states:
-        return {f"tache:{s.name}": s.status for s in states}
-    cur: dict = {}
-    for ev in sorted(events, key=lambda e: e.received):  # le plus récent gagne
-        who = ev.client or ev.machine or ev.folder
-        what = ev.job or ev.machine or "courriels"
-        cur[f"{ev.product}:{who}:{what}"] = ev.status
-    return cur
+def _current_states(cfg, states, events) -> dict:
+    """État courant par tâche — état UNIFIÉ (parsers.current_states) : les
+    tâches attendues ET chaque couple machine/tâche observé non couvert par
+    une expected_job. Une liste expected_jobs partielle ne rend plus les
+    autres tâches muettes."""
+    from .parsers import current_states
+    return {t["key"]: t["etat"] for t in current_states(cfg, events, states)}
 
 
 def transitions(prev: dict, cur: dict, watch: set,
@@ -130,7 +125,7 @@ def check_and_notify(cfg: dict, events, states) -> tuple[int, list[str]]:
     mémorise l'état courant. Retourne (nb envoyées, avertissements)."""
     conf = cfg.get("notifications") or {}
     path = os.path.join(cfg["_dir"], STATE_FILE)
-    cur = _current_states(states, events)
+    cur = _current_states(cfg, states, events)
     if not conf.get("enabled"):
         # Mémoriser quand même : le jour où on active, seules les VRAIES
         # transitions futures notifient (pas tout l'historique d'un coup).
