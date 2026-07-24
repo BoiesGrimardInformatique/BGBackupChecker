@@ -155,52 +155,29 @@ report:
   # par site ou par entreprise
   title: "État des sauvegardes"
 
-# Motifs de détection (expressions régulières).
-# Ordre d'évaluation : erreur > avertissement > succès. À CALIBRER avec de
-# vrais courriels — les valeurs ci-dessous couvrent les formats usuels EN/FR.
-parsers:
-  macrium:
-    failure:
-      - "(?i)backup aborted"
-      - "(?i)clone aborted"
-      - "(?i)\\bfailed\\b"
-      - "(?i)échou"
-      - "(?i)errors?\\s*[:=]\\s*[1-9]"
-    warning:
-      - "(?i)completed with warnings"
-      - "(?i)warnings?\\s*[:=]\\s*[1-9]"
-      - "(?i)avertissement"
-    success:
-      - "(?i)completed successfully"
-      - "(?i)backup completed"
-      - "(?i)réussi"
-      - "(?i)succès"
-    extract:
-      # groupe 1 = valeur extraite ; testé sur le sujet puis le corps
-      machine:
-        - "(?i)computer[\\s:]+([A-Za-z0-9._-]+)"
-        - "(?i)ordinateur[\\s:]+([A-Za-z0-9._-]+)"
-      job:
-        - "(?i)backup definition[\\s:'\"]+([^'\"\\r\\n]+)"
-        - "(?i)définition[\\s:'\"]+([^'\"\\r\\n]+)"
-  retrospect:
-    failure:
-      - "(?i)\\bfailed\\b"
-      - "(?i)[ée]chec"
-      - "(?i)\\berror -?\\d+"
-      - "(?i)\\berreur -?\\d+"
-      - "(?im)^!"
-    warning:
-      - "(?i)with warnings"
-      - "(?i)avertissement"
-    success:
-      - "(?i)completed successfully"
-      - "(?i)terminé(e)? avec succès"
-      - "(?i)normal execution"
-      - "(?i)exécution normale"
-    extract:
-      machine:
-        - "(?i)from ([A-Za-z0-9._-]+)"
-        - "(?i)de ([A-Za-z0-9._-]+)"
-      job:
-        - "[Ss]cript\\s+[«\"']([^»\"']+)"
+# Motifs de détection (expressions régulières) — NE RIEN METTRE ICI SAUF
+# BESOIN : les motifs PAR DÉFAUT (visibles dans backup_monitor/parsers.py,
+# maintenus et testés par l'autotest) couvrent Macrium, Retrospect — dont la
+# nomenclature « ProActive - Remote - <Compagnie> - N erreurs » (client
+# extrait du sujet, 0 erreurs = succès) —, SQL Server Agent, Proxmox Backup
+# Server et les scripts à convention [Success]/[Failed].
+#
+# IMPORTANT : une liste fournie ici REMPLACE la liste par défaut de la même
+# clé (elle ne s'y ajoute pas). Une ancienne section parsers copiée d'un
+# exemple précédent peut donc masquer des correctifs — dans le doute, la
+# supprimer et laisser les défauts s'appliquer. Ordre d'évaluation :
+# erreur > avertissement > succès.
+parsers: {}
+# Exemple de personnalisation (décommenter et ajuster au besoin) :
+# parsers:
+#   macrium:
+#     failure:
+#       - "(?i)mon motif d'erreur à moi"
+#     extract:
+#       # groupe 1 = valeur extraite ; testé sur le sujet puis le corps
+#       machine:
+#         - "(?i)computer(?:\\s+name)?\\s*:?\\s+([A-Za-z0-9._-]+)"
+#   retrospect:
+#     extract:
+#       client:
+#         - "(?i)^proactive\\s*-\\s*remote\\s*-\\s*(.+?)\\s*-\\s*\\d+\\s*erreurs?\\s*$"

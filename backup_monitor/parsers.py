@@ -58,11 +58,17 @@ DEFAULT_PATTERNS = {
         "failure": [
             r"(?i)\bfailed\b", r"(?i)[ée]chec", r"(?i)\berror -?\d+",
             r"(?i)\berreur -?\d+", r"(?im)^!",
+            # Nomenclature « ProActive - Remote - <Compagnie> - N erreurs » :
+            # le compte d'erreurs du sujet donne le statut. « \b » : pas de
+            # frontière entre « 1 » et « 0 », donc « 10 erreurs » ne peut pas
+            # passer pour « 0 erreurs » (et réciproquement).
+            r"(?i)\b[1-9]\d*\s*(?:erreurs?|errors?)\b",
         ],
         "warning": [r"(?i)with warnings", r"(?i)avertissement"],
         "success": [
             r"(?i)completed successfully", r"(?i)terminé(e)? avec succès",
             r"(?i)normal execution", r"(?i)exécution normale",
+            r"(?i)\b0\s*(?:erreurs?|errors?)\b",
         ],
         "extract": {
             # « \bfrom\s+ » ancré ; l'ancien « de (…) » capturait n'importe
@@ -71,6 +77,13 @@ DEFAULT_PATTERNS = {
             "machine": [r"(?i)\bfrom\s+([A-Za-z0-9._-]+)",
                         r"(?i)ordinateur\s+([A-Za-z0-9._-]+)"],
             "job": [r"[Ss]cript\s+[«\"']([^»\"']+)"],
+            # Nomenclature « ProActive - Remote - <Compagnie> - N erreurs » :
+            # le CLIENT est le nom de compagnie du sujet. Groupe paresseux +
+            # fin ancrée sur « - N erreurs » : un nom à trait d'union
+            # (« Ste-Foy Dentaire ») reste entier. Préfixes RE:/TR: tolérés.
+            "client": [r"(?i)^\s*(?:(?:re|tr|fwd?)\s*:\s*)*proactive\s*-\s*"
+                       r"remote\s*-\s*(.+?)\s*-\s*\d+\s*"
+                       r"(?:erreurs?|errors?)\s*$"],
         },
     },
     # Systèmes fréquemment mélangés aux courriels Macrium/Retrospect dans une
@@ -221,6 +234,11 @@ def _detect_product(cfg: dict, text: str) -> str:
     low = text.lower()
     if "retrospect" in low:
         return "retrospect"
+    # « ProActive » (sauvegarde proactive Retrospect) — nomenclature
+    # « ProActive - Remote - <Compagnie> - N erreurs » sans le mot
+    # « Retrospect » dans le texte.
+    if re.search(r"\bproactive\b", low):
+        return "retrospect"
     if "macrium" in low or "reflect" in low:
         return "macrium"
     if "sql server job system" in low:
@@ -285,7 +303,11 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
         # fait 500 caractères, inutile de normaliser un corps de 200 Ko.
         excerpt=re.sub(r"\s+", " ", mail.body[:5000]).strip()[:500],
         attachments_note=mail.attachments_note,
-        client=mail.client,
+        # Priorité : dossier client (mode client_folders) > client extrait du
+        # sujet/corps (ex. nomenclature ProActive de Retrospect) > section
+        # « clients » de config.yaml (appliquée ensuite par analyze()).
+        client=mail.client or _extract(pats["extract"].get("client"),
+                                       mail.subject, mail.body),
     )
 
 
