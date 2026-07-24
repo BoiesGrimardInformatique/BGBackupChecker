@@ -145,12 +145,20 @@ DEFAULT_PATTERNS = {
         # Modèle standard des notifications d'opérateur SQL Server Agent :
         # « [The job succeeded.] SQL Server Job System: '<job>' completed/
         # failed on <serveur>. »
-        "failure": [r"(?i)\[the job failed\]", r"(?i)\bjob failed\b"],
-        "warning": [r"(?i)\[the job succeeded with warning"],
+        # Le SUJET ne porte pas le statut (toujours « completed on ») : la
+        # vérité est dans le corps — « STATUS: Succeeded/Failed » et
+        # « MESSAGES: The job succeeded/failed » (gabarit Microsoft).
+        "failure": [r"(?i)\[the job failed\]", r"(?i)\bjob failed\b",
+                    r"(?im)^status:\s+failed"],
+        "warning": [r"(?i)\[the job succeeded with warning",
+                    # « The job was stopped prior to completion by … » :
+                    # arrêt manuel, pas un échec d'exécution.
+                    r"(?i)stopped prior to completion"],
         # Gardes anti-négation : « was not succeeded » ne doit pas passer
         # pour un succès (voir la même précaution sur GENERIC_PATTERNS).
         "success": [r"(?i)\[the job succeeded\]",
-                    r"(?i)(?<!not )(?<!non )\bjob succeeded\b"],
+                    r"(?i)(?<!not )(?<!non )\bjob succeeded\b",
+                    r"(?im)^status:\s+succeeded"],
         "extract": {
             "machine": [r"(?i)completed on\s+\\{1,2}([A-Za-z0-9_-]+)",
                         r"(?i)failed on\s+\\{1,2}([A-Za-z0-9_-]+)"],
@@ -181,24 +189,47 @@ DEFAULT_PATTERNS = {
         # message from Cobian Reflector » avec le journal dans le corps.
         # Statuts déduits du format de journal (Errors: N) — à confirmer.
         "failure": [r"(?i)errors?\s*[:=]\s*[1-9]\d*",
-                    r"(?i)with errors", r"(?i)\bfailed\b"],
+                    r"(?i)with errors", r"(?i)\bfailed\b",
+                    # Lignes de détail du journal : préfixe « ERR  » en
+                    # tête de ligne (avant l'horodatage).
+                    r"(?im)^err\s"],
         "warning": [r"(?i)warnings?\s*[:=]\s*[1-9]\d*"],
         "success": [r"(?i)errors?\s*[:=]\s*0\b",
                     r"(?i)successfully done"],
         "extract": {
             # Sujet type « Backup Summum (SERVEUR-PC) » : tâche + machine.
+            # La ligne de fin de journal « Backup done for the task "X" »
+            # est plus fiable que le sujet (libre chez Cobian).
             "machine": [r"\(([A-Za-z0-9._ -]+)\)\s*$"],
-            "job": [r"(?i)^backup\s+(.+?)\s*\("],
+            "job": [r"(?i)backup done for the task \"([^\"]+)\"",
+                    r"(?i)^backup\s+(.+?)\s*\("],
         },
     },
     "backupexec": {
-        # Veritas Backup Exec : « Backup Exec Alert: … » ; résultats de
-        # travaux via « Job Completion Status » (« with exceptions » =
-        # avertissement chez Backup Exec). Statuts déduits — à confirmer.
-        "failure": [r"(?i)job completion status\s*:\s*(?:failed|error)",
-                    r"(?i)\bjob failed\b"],
-        "warning": [r"(?i)with exceptions",
-                    r"(?i)job completion status\s*:\s*cancell?ed"],
+        # Veritas Backup Exec : « Backup Exec Alert: <catégorie> (Server:
+        # "X") (Job: "Y") ». Sévérités officielles par catégorie (guide
+        # 22.1 + BEMCLI) : « Job Cancellation » et les catégories « …
+        # Error/Failure » = erreur ; « … Warning », « Media Insert/… » et
+        # « Backup job contains no data » = avertissement ; « Missed » =
+        # planifié mais jamais exécuté.
+        "failure": [r"(?i)job completion status\s*:\s*"
+                    r"(?:failed|error|missed|cancell?ed)",
+                    r"(?i)\bjob failed\b",
+                    r"(?i)the job was cancell?ed",
+                    r"(?i)backup exec alert:\s*"
+                    r"(?:job cancell?ation|[a-z ]*\b(?:error|failure)\b)"],
+        "warning": [
+            # PIÈGE documenté : le courriel « exceptions » commence par
+            # « The job completed successfully.  However, the following
+            # conditions were encountered: … » — évalué AVANT le motif
+            # succès « completed successfully ».
+            r"(?i)however, the following conditions were encountered",
+            r"(?i)with exceptions",
+            r"(?i)backup exec alert:\s*[a-z ]*\bwarning\b",
+            r"(?i)backup exec alert:\s*(?:media (?:intervention|insert|"
+            r"overwrite|remove)|library insert)",
+            r"(?i)backup job contains no data",
+        ],
         # Les catégories « … Information » (General Information, Database
         # Maintenance Information, observées en réel) sont la sévérité la
         # plus basse de Backup Exec : purement informatives, jamais un

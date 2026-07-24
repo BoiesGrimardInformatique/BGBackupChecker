@@ -507,6 +507,72 @@ def _checks() -> list[tuple[str, bool, str]]:
               en[4].product == "macrium" and en[4].status == STATUS_WARNING,
               f"{en[4].product}/{en[4].status}")
 
+        # Gabarits documentés (guide Veritas 22.1, code source Proxmox,
+        # journal Cobian, gabarit Microsoft SQL Agent) — voir
+        # docs/gabarits-courriels.md.
+        doc_mails = [
+            # Piège Backup Exec : le courriel « exceptions » COMMENCE par
+            # « The job completed successfully. » — ne doit pas être vert.
+            RawMail('Backup Exec Alert: Job Completed (Server: "S1") '
+                    '(Job: "J1")', "b@t.l", now - timedelta(minutes=1),
+                    "J1 -- The job completed successfully.  However, the "
+                    "following conditions were encountered: skipped files",
+                    "Backups/BE", "auto"),
+            RawMail('Backup Exec Alert: Job Cancellation (Server: "S1") '
+                    '(Job: "J1")', "b@t.l", now - timedelta(minutes=2),
+                    "The job was canceled because the response to a media "
+                    "request alert was Cancel", "Backups/BE", "auto"),
+            RawMail('Backup Exec Alert: Catalog Error (Server: "S1")',
+                    "b@t.l", now - timedelta(minutes=3),
+                    "An error occurred while processing the catalog.",
+                    "Backups/BE", "auto"),
+            RawMail("Rapport sauvegarde", "c@t.l",
+                    now - timedelta(minutes=4),
+                    "This is an automatic mail message from Cobian "
+                    'Reflector. ** Backup done for the task "Documents". '
+                    "Errors: 0. Processed files: 120 **",
+                    "Backups/Cobian", "auto"),
+            RawMail("SQL Server Job System: 'Nightly' completed on "
+                    "\\\\SRV-SQL", "s@t.l", now - timedelta(minutes=5),
+                    "JOB RUN: 'Nightly' was run on 2026-07-24\n"
+                    "DURATION: 0 hours, 5 minutes\nSTATUS:         Failed\n"
+                    "MESSAGES: See job history.", "Backups/SQL", "auto"),
+            RawMail("vzdump backup status (pve1.local) : backup failed",
+                    "p@t.l", now - timedelta(minutes=6),
+                    "VMID NAME STATUS", "Backups/PVE", "auto"),
+            RawMail("vzdump backup status (pve2.local): backup successful",
+                    "p@t.l", now - timedelta(minutes=7),
+                    "VMID NAME STATUS TOTAL", "Backups/PVE", "auto"),
+        ]
+        doc = analyze(cfg, doc_mails)
+        check("Backup Exec : « …successfully. However, the following "
+              "conditions… » = avertissement (piège documenté)",
+              doc[0].product == "backupexec"
+              and doc[0].status == STATUS_WARNING,
+              f"{doc[0].product}/{doc[0].status}")
+        check("Backup Exec : « Job Cancellation » = erreur (sévérité "
+              "officielle)",
+              doc[1].status == STATUS_ERROR, doc[1].status)
+        check("Backup Exec : « Catalog Error » = erreur",
+              doc[2].status == STATUS_ERROR, doc[2].status)
+        check("Cobian : « Backup done for the task » = tâche extraite du "
+              "journal, Errors: 0 = succès",
+              doc[3].product == "cobian" and doc[3].status == STATUS_SUCCESS
+              and doc[3].job == "Documents",
+              f"{doc[3].product}/{doc[3].status}/{doc[3].job}")
+        check("SQL Agent : « STATUS: Failed » du corps = erreur (le sujet "
+              "ne porte pas le statut)",
+              doc[4].product == "sqlagent" and doc[4].status == STATUS_ERROR,
+              f"{doc[4].product}/{doc[4].status}")
+        check("vzdump : deux générations de sujet (« ) : » ancien / « ): » "
+              "nouveau), machine extraite",
+              doc[5].product == "pbs" and doc[5].status == STATUS_ERROR
+              and doc[5].machine == "pve1.local"
+              and doc[6].status == STATUS_SUCCESS
+              and doc[6].machine == "pve2.local",
+              f"{doc[5].status}/{doc[5].machine} ; "
+              f"{doc[6].status}/{doc[6].machine}")
+
         # Section « Problèmes en cours » : triage sans rien déplier —
         # client, tâche, depuis quand (historique), détail du problème.
         prob_hist = {"taches": {
