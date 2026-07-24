@@ -24,7 +24,8 @@ import os
 import tempfile
 from datetime import datetime, timedelta
 
-from . import SEVERITY, STATUS_SUCCESS
+from . import (SEVERITY, STATUS_ERROR, STATUS_MISSING, STATUS_SUCCESS,
+               STATUS_WARNING)
 
 HISTORY_FILE = "historique.json"
 
@@ -126,3 +127,21 @@ def success_rate(jours: dict, now: datetime, days: int = 30) -> tuple[int, int]:
     floor = (now - timedelta(days=days)).strftime("%Y-%m-%d")
     seen = [s for d, s in jours.items() if d >= floor]
     return sum(1 for s in seen if s == STATUS_SUCCESS), len(seen)
+
+
+def streak(jours: dict, now: datetime, max_days: int = 90) -> tuple[int, str]:
+    """(jours consécutifs en difficulté jusqu'à aujourd'hui, premier jour de
+    la série) — « en échec depuis N jours ». Un jour sans donnée (tâche qui
+    n'envoie pas tous les jours) ne casse pas la série ; un jour en succès
+    ou inconnu, oui."""
+    bad = {STATUS_ERROR, STATUS_MISSING, STATUS_WARNING}
+    n, first = 0, ""
+    for i in range(max_days):
+        st = jours.get((now - timedelta(days=i)).strftime("%Y-%m-%d"))
+        if st is None:
+            continue
+        if st not in bad:
+            break
+        n += 1
+        first = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+    return n, first

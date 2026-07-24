@@ -87,6 +87,7 @@ class BackupEvent:
     job: str = ""
     matched_pattern: str = ""
     excerpt: str = ""  # début du corps, pour le panneau de détail du tableau
+    problem: str = ""  # texte autour du motif d'erreur/avertissement déclencheur
     attachments_note: str = ""
     client: str = ""  # client associé via la section « clients » de config.yaml
 
