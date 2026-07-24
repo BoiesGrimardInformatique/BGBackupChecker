@@ -69,6 +69,35 @@ DEFAULTS = {
 }
 
 
+# Tâches d'EXEMPLE d'anciens config.example.yaml restées telles quelles dans
+# un config.yaml copié : elles ne correspondent à rien de réel et créaient
+# deux faux « Manquant » permanents dans le tableau. Reconnues à l'identique
+# (nom + produit + match) et ignorées au chargement, avec un avertissement.
+EXAMPLE_JOBS = {
+    ("SRV-FICHIERS — Image Macrium quotidienne", "macrium", "SRV-FICHIERS"),
+    ("Retrospect — Sauvegarde postes", "retrospect", "Sauvegarde postes"),
+}
+
+
+def _drop_example_jobs(cfg: dict) -> None:
+    kept, dropped = [], []
+    for job in cfg.get("expected_jobs") or []:
+        key = (str(job.get("name")), str(job.get("product")),
+               str(job.get("match")))
+        (dropped if key in EXAMPLE_JOBS else kept).append(job)
+    if dropped:
+        cfg["expected_jobs"] = kept
+        noms = ", ".join(f"« {j.get('name')} »" for j in dropped)
+        print(
+            f"AVERTISSEMENT : {len(dropped)} tâche(s) d'EXEMPLE ignorée(s) "
+            f"dans expected_jobs ({noms}) — copiées de config.example.yaml, "
+            "elles ne correspondent à rien. Supprimez-les de config.yaml "
+            "pour faire taire cet avertissement ; « suggest-jobs » propose "
+            "vos vraies tâches.",
+            file=sys.stderr,
+        )
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     out = copy.deepcopy(base)
     for key, value in (override or {}).items():
@@ -99,6 +128,7 @@ def load(path: str, require_folders: bool = True) -> dict:
     with open(path, encoding="utf-8") as fh:
         user_cfg = yaml.safe_load(fh) or {}
     cfg = _deep_merge(DEFAULTS, user_cfg)
+    _drop_example_jobs(cfg)
 
     method = str(cfg["exchange"]["method"]).lower()
     if method not in ("outlook", "ews", "imap"):

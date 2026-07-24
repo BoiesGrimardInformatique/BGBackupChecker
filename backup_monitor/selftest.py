@@ -633,6 +633,29 @@ def _checks() -> list[tuple[str, bool, str]]:
             cfg2 = load(example, require_folders=False)
             check("config.example.yaml valide",
                   cfg2["exchange"]["method"] == "outlook")
+        # Les tâches d'EXEMPLE laissées dans un config.yaml copié sont
+        # ignorées au chargement (elles créaient 2 faux « Manquant »).
+        with tempfile.TemporaryDirectory() as tmp2:
+            cfg_yaml = os.path.join(tmp2, "c.yaml")
+            with open(cfg_yaml, "w", encoding="utf-8") as fh:
+                fh.write(
+                    'expected_jobs:\n'
+                    '  - name: "SRV-FICHIERS — Image Macrium quotidienne"\n'
+                    '    product: macrium\n'
+                    '    match: "SRV-FICHIERS"\n'
+                    '  - name: "Retrospect — Sauvegarde postes"\n'
+                    '    product: retrospect\n'
+                    '    match: "Sauvegarde postes"\n'
+                    '  - name: "Ma vraie tâche"\n'
+                    '    product: macrium\n'
+                    '    match: "SRV-PROD"\n')
+            if os.name == "posix":
+                os.chmod(cfg_yaml, 0o600)
+            cfg3 = load(cfg_yaml, require_folders=False)
+            check("config : tâches d'exemple ignorées, les vraies gardées",
+                  [j["name"] for j in cfg3["expected_jobs"]]
+                  == ["Ma vraie tâche"],
+                  str([j.get("name") for j in cfg3["expected_jobs"]]))
     except ImportError:
         check("config.example.yaml valide", True, "ignoré (PyYAML absent)")
 

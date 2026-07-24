@@ -401,9 +401,14 @@ avant de le transmettre** (il n'est jamais versionné : `.gitignore`).
 
 ## Mise à jour depuis le ZIP du dépôt
 
-Si votre méthode de mise à jour est « supprimer le dossier puis re-extraire
-le ZIP », **préservez d'abord ces fichiers locaux** (ils sont à la racine du
-dossier et ne sont pas dans le ZIP) :
+**Méthode recommandée : extraire le ZIP PAR-DESSUS le dossier existant** (en
+acceptant d'écraser). Vos fichiers locaux — `config.yaml`,
+`historique.json`, `dernier-etat.json`, le tableau et les journaux — **ne
+sont pas dans le ZIP** : ils ne peuvent pas être écrasés et survivent
+automatiquement. Rien à sauvegarder, rien à remettre.
+
+Si vous préférez « supprimer le dossier puis re-extraire », préservez
+d'abord ces fichiers locaux :
 
 | Fichier | Rôle | Si perdu |
 |---|---|---|
@@ -411,11 +416,12 @@ dossier et ne sont pas dans le ZIP) :
 | `historique.json` | Historique quotidien des tâches | La section Historique repart de la fenêtre d'analyse |
 | `dernier-etat.json` | Mémoire des notifications | Risque d'une salve de notifications au run suivant |
 
-Le plus simple : copier ces trois fichiers ailleurs, re-extraire le ZIP,
-puis les remettre. (`tableau-backups.html` et les journaux se régénèrent
-seuls ; le cache de collecte vit dans le profil du poste et survit à la
-mise à jour.) Après chaque mise à jour, l'autotest tourne à la première
-commande — une régression se verrait immédiatement.
+(`tableau-backups.html` et les journaux se régénèrent seuls ; le cache de
+collecte vit dans le profil du poste et survit dans les deux cas.) Après
+chaque mise à jour, l'autotest tourne à la première commande — une
+régression se verrait immédiatement. Les tâches d'**exemple** restées dans
+`expected_jobs` (copiées d'un ancien fichier d'exemple) sont **ignorées
+automatiquement** au chargement, avec un avertissement.
 
 ## Dépannage
 
