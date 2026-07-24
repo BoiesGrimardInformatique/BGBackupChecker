@@ -34,6 +34,8 @@ DEFAULT_PATTERNS = {
             r"(?i)completed with warnings", r"(?i)warnings?\s*[:=]\s*[1-9]",
             r"(?i)avertissement",
             r"(?i)backup\s+warning", r"(?i)warning\s+notification",
+            # Macrium Site Manager : dépôt de sauvegarde presque plein.
+            r"(?i)disk space low",
         ],
         "success": [
             r"(?i)completed successfully", r"(?i)backup completed",
@@ -64,7 +66,11 @@ DEFAULT_PATTERNS = {
             # passer pour « 0 erreurs » (et réciproquement).
             r"(?i)\b[1-9]\d*\s*(?:erreurs?|errors?)\b",
         ],
-        "warning": [r"(?i)with warnings", r"(?i)avertissement"],
+        "warning": [r"(?i)with warnings", r"(?i)avertissement",
+                    # Digest quotidien « Retrospect : état pour <date> » :
+                    # une sauvegarde interrompue par l'opérateur mérite un
+                    # coup d'œil, pas un vert silencieux.
+                    r"(?i)interrompues? par l'op[ée]rateur\s*:\s*[1-9]"],
         "success": [
             r"(?i)completed successfully", r"(?i)terminé(e)? avec succès",
             r"(?i)normal execution", r"(?i)exécution normale",
@@ -107,16 +113,50 @@ DEFAULT_PATTERNS = {
     },
     "pbs": {
         # Proxmox Backup Server / vzdump : sauvegardes VM (vzdump), purge
-        # (Garbage Collect), rétention (Pruning) et réplication (Sync remote).
+        # (Garbage Collect), rétention (Pruning), réplication (Sync remote)
+        # et sauvegardes d'hôte via proxmox-backup-client (courriels
+        # « Timer service … pbs.sh » : journal du client, « Error: » en
+        # début de ligne = échec, « End Time: » atteint = terminé).
         "failure": [r"(?i)\bbackup failed\b", r"(?i)\btask error\b",
-                    r"(?i)\bfailed\b"],
+                    r"(?i)\bfailed\b", r"(?im)^error\s*:"],
         "warning": [],
         # Garde anti-négation : « was not successful » ne doit pas passer
         # pour un succès (voir la même précaution sur GENERIC_PATTERNS).
-        "success": [r"(?i)(?<!not )(?<!non )(?<!sans )(?<!without )\bsuccessful\b"],
+        "success": [r"(?i)(?<!not )(?<!non )(?<!sans )(?<!without )\bsuccessful\b",
+                    r"(?im)^end time\s*:"],
         "extract": {
-            "machine": [r"\(([A-Za-z0-9_.-]+)\)"],
+            "machine": [r"\(([A-Za-z0-9_.-]+)\)",
+                        r"(?i)client name\s*:\s*([A-Za-z0-9_.-]+)"],
             "job": [r"[Dd]atastore\s+'([^']+)'"],
+        },
+    },
+    "cobian": {
+        # Cobian Reflector / Cobian Backup : courriel « automatic mail
+        # message from Cobian Reflector » avec le journal dans le corps.
+        # Statuts déduits du format de journal (Errors: N) — à confirmer.
+        "failure": [r"(?i)errors?\s*[:=]\s*[1-9]\d*",
+                    r"(?i)with errors", r"(?i)\bfailed\b"],
+        "warning": [r"(?i)warnings?\s*[:=]\s*[1-9]\d*"],
+        "success": [r"(?i)errors?\s*[:=]\s*0\b",
+                    r"(?i)successfully done"],
+        "extract": {
+            # Sujet type « Backup Summum (SERVEUR-PC) » : tâche + machine.
+            "machine": [r"\(([A-Za-z0-9._ -]+)\)\s*$"],
+            "job": [r"(?i)^backup\s+(.+?)\s*\("],
+        },
+    },
+    "backupexec": {
+        # Veritas Backup Exec : « Backup Exec Alert: … » ; résultats de
+        # travaux via « Job Completion Status » (« with exceptions » =
+        # avertissement chez Backup Exec). Statuts déduits — à confirmer.
+        "failure": [r"(?i)job completion status\s*:\s*(?:failed|error)",
+                    r"(?i)\bjob failed\b"],
+        "warning": [r"(?i)with exceptions",
+                    r"(?i)job completion status\s*:\s*cancell?ed"],
+        "success": [r"(?i)job completion status\s*:\s*success"],
+        "extract": {
+            "machine": [r"(?i)server:\s*\"\\{0,2}([A-Za-z0-9._-]+)"],
+            "job": [r"(?i)job:\s*\"([^\"]+)"],
         },
     },
     "script": {
@@ -239,13 +279,22 @@ def _detect_product(cfg: dict, text: str) -> str:
     # « Retrospect » dans le texte.
     if re.search(r"\bproactive\b", low):
         return "retrospect"
+    # AVANT le test macrium/reflect : « Cobian Reflector » contient
+    # « reflect » et passait à tort pour du Macrium.
+    if "cobian" in low:
+        return "cobian"
+    if "backup exec" in low:
+        return "backupexec"
     if "macrium" in low or "reflect" in low:
         return "macrium"
     if "sql server job system" in low:
         return "sqlagent"
     if ("vzdump" in low or "garbage collect datastore" in low
             or "pruning datastore" in low
-            or ("sync remote" in low and "datastore" in low)):
+            or ("sync remote" in low and "datastore" in low)
+            # proxmox-backup-client (sauvegarde d'hôte via timer systemd)
+            or "starting backup protocol" in low
+            or "proxmox-backup-client" in low):
         return "pbs"
     if re.search(r"\[(success|failed|warning|error|ok)\]", low):
         return "script"
@@ -414,6 +463,36 @@ def job_matches(cfg: dict, events: list[BackupEvent]) -> dict[str, list[BackupEv
                    and rx.search(f"{ev.subject} {ev.machine} {ev.job}")]
         if matched:
             out[name] = matched
+    return out
+
+
+def current_states(cfg: dict, events: list[BackupEvent],
+                   states: list[JobState]) -> list[dict]:
+    """État courant UNIFIÉ de chaque tâche : les tâches attendues
+    (expected_jobs) d'abord — y compris « manquant » — puis le dernier état
+    de chaque couple machine/tâche observé NON couvert par une expected_job
+    (mêmes clés stables que les notifications). Une liste expected_jobs
+    partielle (ou d'exemple) ne masque donc plus les problèmes des autres
+    tâches — c'est la base commune des tuiles, de la vue par client, de
+    l'historique et des notifications."""
+    claimed: set[int] = set()
+    for evs in job_matches(cfg, events).values():
+        claimed.update(id(e) for e in evs)
+    out = [{"key": f"tache:{s.name}", "nom": s.name, "client": s.client,
+            "produit": s.product, "etat": s.status, "dernier": s.last_event}
+           for s in states]
+    latest: dict = {}
+    for ev in sorted(events, key=lambda e: e.received):  # le plus récent gagne
+        if id(ev) in claimed:
+            continue
+        who = ev.client or ev.machine or ev.folder
+        what = ev.job or ev.machine or "courriels"
+        latest[(ev.product, who, what)] = ev
+    for (product, who, what), ev in latest.items():
+        out.append({"key": f"{product}:{who}:{what}",
+                    "nom": f"{who} — {what}" if what != who else who,
+                    "client": ev.client, "produit": product,
+                    "etat": ev.status, "dernier": ev})
     return out
 
 

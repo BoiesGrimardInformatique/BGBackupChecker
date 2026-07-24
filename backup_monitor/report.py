@@ -22,6 +22,7 @@ from . import (
     STATUS_WARNING,
 )
 from . import history as history_mod
+from .parsers import current_states
 
 # Icône + libellé : la couleur ne porte jamais l'information seule.
 BADGES = {
@@ -35,6 +36,7 @@ BADGES = {
 PRODUCT_LABELS = {
     "macrium": "Macrium", "retrospect": "Retrospect",
     "sqlagent": "SQL Server Agent", "pbs": "Proxmox Backup Server",
+    "cobian": "Cobian", "backupexec": "Backup Exec",
     "script": "Script personnalisé",
 }
 NO_CLIENT = "(non assigné)"
@@ -308,21 +310,6 @@ def _esc(s: str) -> str:
     return html.escape(str(s or ""))
 
 
-def _latest_by_task(events: list[BackupEvent]) -> list[BackupEvent]:
-    """Dernier état connu de chaque tâche observée (produit + machine/client
-    + tâche — mêmes clés stables que les notifications). Sert de base aux
-    tuiles et à la vue par client quand aucune expected_job n'est
-    configurée : un échec vieux de 3 jours SANS courriel plus récent pour la
-    même tâche reste visible, là où un décompte des dernières 24 h le
-    masquait complètement."""
-    latest: dict = {}
-    for ev in sorted(events, key=lambda e: e.received):  # le plus récent gagne
-        who = ev.client or ev.machine or ev.folder
-        what = ev.job or ev.machine or "courriels"
-        latest[(ev.product, who, what)] = ev
-    return list(latest.values())
-
-
 def _badge(status: str) -> str:
     icon, label, cls = BADGES.get(status, BADGES[STATUS_UNKNOWN])
     return (f'<span class="badge c-{cls}"><span class="ic">{icon}</span>'
@@ -531,10 +518,11 @@ def _events_table(events: list[BackupEvent], max_rows: int) -> str:
             f'</thead><tbody>{"".join(rows)}</tbody></table></div>{trunc}')
 
 
-def _client_summary(states: list[JobState], events: list[BackupEvent],
-                    now: datetime) -> str:
-    """Vue par client : pire état + comptes, basée sur les tâches attendues
-    si elles existent, sinon sur les courriels des dernières 24 h."""
+def _client_summary(cfg: dict, states: list[JobState],
+                    events: list[BackupEvent], now: datetime) -> str:
+    """Vue par client : pire état + comptes, basée sur l'état courant UNIFIÉ
+    de chaque tâche (attendues ET observées) — une liste expected_jobs
+    partielle ne masque plus les problèmes des autres tâches."""
     groups: dict[str, dict] = {}
 
     def bump(client: str, status: str):
@@ -542,12 +530,8 @@ def _client_summary(states: list[JobState], events: list[BackupEvent],
                               {st: 0 for st in SEVERITY})
         g[status] = g.get(status, 0) + 1
 
-    if states:
-        for s in states:
-            bump(s.client, s.status)
-    else:
-        for ev in _latest_by_task(events):
-            bump(ev.client, ev.status)
+    for t in current_states(cfg, events, states):
+        bump(t["client"], t["etat"])
     if not groups or list(groups) == [NO_CLIENT]:
         return ""  # aucun client défini : la section n'apporterait rien
 
@@ -576,7 +560,7 @@ def _client_summary(states: list[JobState], events: list[BackupEvent],
             f'<td class="n">{g.get(STATUS_WARNING, 0)}</td>'
             f'<td class="n">{g.get(STATUS_SUCCESS, 0)}</td>'
             "</tr>")
-    basis = ("tâches attendues" if states else "courriels des dernières 24 h")
+    basis = "l'état courant de chaque tâche (attendues et observées)"
     return (
         "<h2>Vue par client</h2>"
         '<div class="wrap" id="clients-resume"><table><thead><tr>'
@@ -609,7 +593,8 @@ def _filters(clients: list[str]) -> str:
 
     produits = [("tous", "Tous"), ("macrium", "Macrium"),
                 ("retrospect", "Retrospect"), ("sqlagent", "SQL Agent"),
-                ("pbs", "Proxmox"), ("script", "Script")]
+                ("pbs", "Proxmox"), ("cobian", "Cobian"),
+                ("backupexec", "Backup Exec"), ("script", "Script")]
     etats = [("tous", "Tous"), (STATUS_ERROR, "Erreur"),
              (STATUS_WARNING, "Avert."), (STATUS_SUCCESS, "Succès"),
              (STATUS_UNKNOWN, "Inconnu")]
@@ -639,20 +624,16 @@ def render(cfg: dict, events: list[BackupEvent], states: list[JobState],
     refresh = int(cfg["report"]["refresh_seconds"])
     days = cfg["analysis"]["days_back"]
 
-    if states:
-        counts = {}
-        for s in states:
-            counts[s.status] = counts.get(s.status, 0) + 1
-        basis = ("Comptes basés sur l'état courant des tâches attendues. "
-                 "Cliquer une tuile pour filtrer les courriels.")
-    else:
-        counts = {}
-        for ev in _latest_by_task(events):
-            counts[ev.status] = counts.get(ev.status, 0) + 1
-        basis = ("Comptes basés sur le DERNIER état connu de chaque tâche "
-                 "observée (aucune tâche attendue configurée) — un échec "
-                 "sans courriel plus récent reste compté. "
-                 "Cliquer une tuile pour filtrer les courriels.")
+    # État courant UNIFIÉ : tâches attendues (dont « manquant ») + dernier
+    # état de chaque tâche observée non couverte par une expected_job. Une
+    # liste expected_jobs partielle ne peut plus masquer les vrais problèmes.
+    counts: dict = {}
+    for t in current_states(cfg, events, states):
+        counts[t["etat"]] = counts.get(t["etat"], 0) + 1
+    basis = ("Comptes basés sur l'état courant de chaque tâche — attendues "
+             "(expected_jobs) et observées dans les courriels ; un échec "
+             "sans courriel plus récent reste compté. "
+             "Cliquer une tuile pour filtrer les courriels.")
 
     refresh_label = (f"{refresh // 60} min" if refresh % 60 == 0
                      else f"{refresh} s")
@@ -685,7 +666,7 @@ généré {now.strftime("%Y-%m-%d %H:%M")} · <span class="rel"></span></span>
 {refresh_label} · {len(events)} courriels analysés</p>
 {_error_banner(fetch_errors)}
 {_tiles(counts, basis)}
-{_client_summary(states, events, now)}
+{_client_summary(cfg, states, events, now)}
 <h2 id="taches">État par tâche attendue</h2>
 {_jobs_table(states)}
 {_history_section(cfg, history, now)}

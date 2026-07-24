@@ -250,14 +250,21 @@ parent dont chaque sous-dossier est un client »). Se combine au besoin avec les
 dossiers par produit (`folders`) et avec la section `clients` (qui ne
 s'applique qu'aux courriels sans client déjà déterminé par le dossier).
 
-Au-delà de Macrium et Retrospect, ce mode reconnaît automatiquement trois
+Au-delà de Macrium et Retrospect, ce mode reconnaît automatiquement cinq
 autres systèmes fréquemment reçus dans les mêmes boîtes :
 
 | Produit | Détecté grâce à | État |
 |---|---|---|
 | **SQL Server Agent** | `SQL Server Job System` (modèle standard Microsoft) | Succès confirmé sur de vrais courriels ; échec déduit du modèle symétrique (`[The job failed.]`) |
-| **Proxmox Backup Server** | `vzdump`, `Garbage Collect Datastore`, `Pruning datastore`, `Sync remote … datastore` | Succès confirmé ; échec déduit (`backup failed`, `TASK ERROR`) |
+| **Proxmox Backup Server** | `vzdump`, `Garbage Collect Datastore`, `Pruning datastore`, `Sync remote … datastore`, et `proxmox-backup-client` (courriels « Timer service … pbs.sh ») | Succès et échec des sync confirmés sur de vrais courriels ; pour le client d'hôte : `End Time:` atteint = terminé, `Error:` en début de ligne = échec (déduits) |
+| **Cobian Reflector** | `Cobian` dans le corps (testé **avant** Macrium : « Reflector » contient « Reflect ») | `Errors: 0` = succès, `Errors: N` = erreur (déduits du journal) |
+| **Backup Exec** | `Backup Exec` | `Job Completion Status: Successful/Failed`, `with exceptions` = avertissement (déduits) ; les alertes de maintenance restent « Inconnu » |
 | **Script personnalisé** | Sujet à convention `[Success]` / `[Failed]` / `[Warning]` | Succès confirmé ; échec/avertissement déduits de la même convention |
+
+S'y ajoutent, pour les produits principaux : le digest quotidien
+« Retrospect : état pour \<date\> » (`interrompues par l'opérateur: N` ⩾ 1 =
+avertissement) et l'alerte d'espace disque du Macrium Site Manager
+(`Disk Space Low` = avertissement).
 
 Les motifs de **succès** ci-dessus ont été validés avec de vrais courriels ; les
 motifs d'**échec/avertissement** sont déduits du modèle standard de chaque
