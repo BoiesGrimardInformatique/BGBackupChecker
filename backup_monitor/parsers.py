@@ -29,11 +29,17 @@ DEFAULT_PATTERNS = {
             # dans un rapport de succès ne doit pas passer pour une erreur.
             r"(?i)backup\s+failure", r"(?i)clone\s+failure",
             r"(?i)failure\s+notification", r"(?i)failed\s*:\(",
+            # Sauvegarde infonuagique (« "Backups S3" Errors occurred ») —
+            # garde : « no errors occurred » resterait un succès.
+            r"(?i)(?<!no )\berrors occurred\b",
         ],
         "warning": [
             r"(?i)completed with warnings", r"(?i)warnings?\s*[:=]\s*[1-9]",
             r"(?i)avertissement",
             r"(?i)backup\s+warning", r"(?i)warning\s+notification",
+            # Sujet « … - Backup with Warnings », corps « Warning :| » —
+            # l'émoticône tiède du modèle Macrium, comme « Failed :( ».
+            r"(?i)backup with warnings", r"(?i)warning\s*:\|",
             # Macrium Site Manager : dépôt de sauvegarde presque plein.
             r"(?i)disk space low",
         ],
@@ -84,6 +90,9 @@ DEFAULT_PATTERNS = {
             r"(?i)completed successfully", r"(?i)terminé(e)? avec succès",
             r"(?i)normal execution", r"(?i)exécution normale",
             r"(?i)\b0\s*(?:erreurs?|errors?)\b",
+            # Récapitulatif de la console (« * Erreurs : 0 * ») — évalué
+            # après failure/warning, donc « Erreurs : 3 » reste une erreur.
+            r"(?i)erreurs?\s*[:=]\s*0\b",
         ],
         "extract": {
             # « \bfrom\s+ » ancré ; l'ancien « de (…) » capturait n'importe
@@ -104,7 +113,9 @@ DEFAULT_PATTERNS = {
                        r"remote\s*-\s*(.+?)\s*-\s*"
                        r"(?:\d+\s*(?:erreurs?|errors?)"
                        r"(?:\s*,\s*\d+\s*avertissements?)?"
-                       r"|notification d'erreur)"
+                       # « - Notification - Retrospect » (console) existe
+                       # aussi sans « d'erreur ».
+                       r"|notification(?:\s+d'erreur)?)"
                        r"(?:\s*-\s*retrospect)?\s*$",
                        r"(?i)^\s*(?:(?:re|tr|fwd?)\s*:\s*)*proactive\s*-\s*"
                        r"remote\s*-\s*(.+?)\s*-\s*\d+\s*"
@@ -176,7 +187,11 @@ DEFAULT_PATTERNS = {
         # Maintenance Information, observées en réel) sont la sévérité la
         # plus basse de Backup Exec : purement informatives, jamais un
         # échec — on suit sa taxonomie, comme le « 0 erreurs » Retrospect.
+        # « Job Success » + corps « Completed Successfully. » : la forme
+        # réelle observée (pas de « Job Completion Status » dans le corps).
         "success": [r"(?i)job completion status\s*:\s*success",
+                    r"(?i)backup exec alert:\s*job success",
+                    r"(?i)\bcompleted successfully\b",
                     r"(?i)backup exec alert:\s*[a-z ]*\binformation\b"],
         "extract": {
             "machine": [r"(?i)server:\s*\"\\{0,2}([A-Za-z0-9._-]+)"],

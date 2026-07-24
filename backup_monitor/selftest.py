@@ -300,6 +300,34 @@ def _checks() -> list[tuple[str, bool, str]]:
                     "SEA-MAIL\\BkupExec has started.",
                     "Sauvegardes/Seanautic Marine", "auto",
                     client="Seanautic Marine"),
+            # 2e rapport diagnostic réel : « Job Success » (le corps dit
+            # « Completed Successfully. », pas « Job Completion Status »),
+            # « Backup with Warnings » (émoticône « Warning :| »),
+            # sauvegarde infonuagique S3 en erreur, notification console
+            # Retrospect avec récapitulatif « Erreurs : 0 ».
+            RawMail('Backup Exec Alert: Job Success (Server: "SEA-MAIL") '
+                    '(Job: "Backup all stations-Incremental")',
+                    "b@test.local", now - timedelta(minutes=8),
+                    '(Server: "SEA-MAIL") (Job: "Backup all '
+                    'stations-Incremental") Completed Successfully.',
+                    "Sauvegardes/Seanautic Marine", "auto",
+                    client="Seanautic Marine"),
+            RawMail("Production3-Planning Macrium Reflect - Backup with "
+                    "Warnings", "b@test.local", now - timedelta(minutes=9),
+                    "Warning :|", "Sauvegardes/Patt Technologies", "auto",
+                    client="Patt Technologies"),
+            RawMail("Backups S3 Errors occurred", "b@test.local",
+                    now - timedelta(minutes=10),
+                    '"Backups S3" Report Backup to: S3 Compatible Bucket '
+                    'Backup type Cloud backup "Backups S3" Errors occurred',
+                    "Sauvegardes/Seanautic Marine", "auto",
+                    client="Seanautic Marine"),
+            RawMail("ProActive - Remote - Ruscio Studio - Notification - "
+                    "Retrospect", "b@test.local", now - timedelta(minutes=11),
+                    "Management Console Script : ProActive - Remote - "
+                    "Ruscio Studio Client : SBSSERVER * Erreurs : 0 *",
+                    "Sauvegardes/Ruscio studio", "auto",
+                    client="Ruscio studio"),
         ]
         rev = {e.subject: e for e in analyze(cfg, reels)}
         cob = rev["Backup Summum (SERVEUR-PC)"]
@@ -343,6 +371,31 @@ def _checks() -> list[tuple[str, bool, str]]:
               dbm.product == "backupexec" and dbm.status == STATUS_SUCCESS
               and dbm.job == "Database Maintenance",
               f"{dbm.product}/{dbm.status}/{dbm.job}")
+        bjs = rev['Backup Exec Alert: Job Success (Server: "SEA-MAIL") '
+                  '(Job: "Backup all stations-Incremental")']
+        check("Backup Exec : « Job Success »/« Completed Successfully » = "
+              "succès, tâche extraite",
+              bjs.product == "backupexec" and bjs.status == STATUS_SUCCESS
+              and bjs.job == "Backup all stations-Incremental",
+              f"{bjs.product}/{bjs.status}/{bjs.job}")
+        mww = rev["Production3-Planning Macrium Reflect - Backup with "
+                  "Warnings"]
+        check("Macrium : « Backup with Warnings »/« Warning :| » = "
+              "avertissement, machine du sujet",
+              mww.product == "macrium" and mww.status == STATUS_WARNING
+              and mww.machine == "Production3-Planning",
+              f"{mww.product}/{mww.status}/{mww.machine}")
+        s3e = rev["Backups S3 Errors occurred"]
+        check("Macrium infonuagique : « Errors occurred » = erreur",
+              s3e.product == "macrium" and s3e.status == STATUS_ERROR,
+              f"{s3e.product}/{s3e.status}")
+        rcn = rev["ProActive - Remote - Ruscio Studio - Notification - "
+                  "Retrospect"]
+        check("Console Retrospect : « - Notification - » avec "
+              "« Erreurs : 0 » = succès, machine via « Client : »",
+              rcn.product == "retrospect" and rcn.status == STATUS_SUCCESS
+              and rcn.machine == "SBSSERVER",
+              f"{rcn.product}/{rcn.status}/{rcn.machine}")
 
         # Nomenclature ProActive complète (capture réelle) : suffixes
         # « , M avertissements - Retrospect » et « Notification d'erreur »,
