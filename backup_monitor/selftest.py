@@ -10,11 +10,12 @@ from datetime import datetime, timedelta
 from . import (JobState, RawMail, STATUS_ERROR, STATUS_MISSING,
                STATUS_SUCCESS, STATUS_UNKNOWN, STATUS_WARNING, load_timezone)
 from .attachments import extract, gate, looks_like_text, sender_allowed
-from .history import HISTORY_FILE, success_rate
+from .history import HISTORY_FILE, streak, success_rate
 from .history import update as hist_update
 from .mailcache import MailCache, fingerprint, open_cache
 from .notify import check_and_notify, transitions
-from .parsers import analyze, current_states, job_states, suggest_jobs
+from .parsers import (analyze, classify, current_states, job_states,
+                      suggest_jobs)
 from .report import render, write
 
 TZ = load_timezone("America/Toronto")
@@ -312,6 +313,75 @@ def _checks() -> list[tuple[str, bool, str]]:
         check("Site Manager : Disk Space Low = avertissement Macrium",
               sml.product == "macrium" and sml.status == STATUS_WARNING,
               f"{sml.product}/{sml.status}")
+
+        # Nomenclature ProActive complète (capture réelle) : suffixes
+        # « , M avertissements - Retrospect » et « Notification d'erreur »,
+        # machine via « Client : X », détail du problème extrait.
+        rus_mails = [
+            RawMail("ProActive - Remote - Ruscio Studio - 2 erreurs, "
+                    "4 avertissements - Retrospect", "retro@test.local",
+                    now - timedelta(minutes=1),
+                    "--Récapitulatif du script-- * Script: ProActive - "
+                    "Remote - Ruscio Studio * Date: 2026-07-20 19:11 * "
+                    "Erreurs: 2 * Avertissements: 4 * Performance: "
+                    "20.6 Mo/min * Serveur: pve-Srv-Sauvegarde",
+                    "Sauvegardes/Ruscio studio", "auto",
+                    client="Ruscio studio"),
+            RawMail("ProActive - Remote - Ruscio Studio - Notification "
+                    "d'erreur - Retrospect", "retro@test.local",
+                    now - timedelta(minutes=2),
+                    "Script : ProActive - Remote - Ruscio Studio Client : "
+                    "SBSSERVER (Ruscio Studio) Problème de lecture des "
+                    "fichiers, erreur -519 (échec de la communication "
+                    "réseau)", "Sauvegardes/Ruscio studio", "auto",
+                    client="Ruscio studio"),
+        ]
+        rus = analyze(cfg, rus_mails)
+        recap, notif = rus[0], rus[1]
+        check("ProActive réel : « 2 erreurs, 4 avertissements » = erreur, "
+              "détail extrait autour du compte d'erreurs",
+              recap.status == STATUS_ERROR and "Erreurs: 2" in recap.problem,
+              f"{recap.status} / {recap.problem[:80]}")
+        check("ProActive réel : sujet complet → client extrait malgré les "
+              "suffixes",
+              classify({**cfg, "clients": []}, RawMail(
+                  "ProActive - Remote - Boies-Grimard - 2 erreurs, "
+                  "4 avertissements - Retrospect", "r@t.local", now, "",
+                  "Backups/Retrospect", "retrospect")).client
+              == "Boies-Grimard")
+        check("ProActive réel : notification d'erreur = erreur, machine "
+              "SBSSERVER via « Client : », erreur -519 dans le détail",
+              notif.status == STATUS_ERROR and notif.machine == "SBSSERVER"
+              and "-519" in notif.problem,
+              f"{notif.status}/{notif.machine}/{notif.problem[:60]}")
+
+        # Section « Problèmes en cours » : triage sans rien déplier —
+        # client, tâche, depuis quand (historique), détail du problème.
+        prob_hist = {"taches": {
+            "retrospect:Ruscio studio:SBSSERVER": {"jours": {
+                (now - timedelta(days=d)).strftime("%Y-%m-%d"): STATUS_ERROR
+                for d in range(3)}}}}
+        prob_page = render({**cfg, "expected_jobs": [], "clients": []},
+                           rus, [], None, prob_hist)
+        check("Problèmes en cours : section présente avec client et détail",
+              'id="problemes"' in prob_page and "Ruscio studio" in prob_page
+              and "-519" in prob_page)
+        check("Problèmes en cours : détail sous le sujet dans les courriels",
+              'class="prob prob-erreur"' in prob_page)
+        all_green = render({**cfg, "expected_jobs": [], "clients": []},
+                           analyze(cfg, [RawMail(
+                               "Macrium Reflect Backup", "b@test.local", now,
+                               "Backup completed successfully",
+                               "Backups/Macrium", "macrium")]), [], None)
+        check("Problèmes en cours : tout au vert = message rassurant",
+              "Aucun problème en cours" in all_green)
+        n_streak, d_streak = streak(
+            {(now - timedelta(days=d)).strftime("%Y-%m-%d"): STATUS_ERROR
+             for d in range(4)}, now)
+        check("Historique : « depuis N jours » (série d'échecs consécutifs)",
+              n_streak == 4
+              and d_streak == (now - timedelta(days=3)).strftime("%Y-%m-%d"),
+              f"{n_streak} / {d_streak}")
 
         # État unifié : une expected_job d'exemple (qui ne matche rien) ne
         # masque plus les problèmes des tâches observées — c'était le cas

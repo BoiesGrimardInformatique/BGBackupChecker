@@ -65,8 +65,17 @@ DEFAULT_PATTERNS = {
             # frontière entre « 1 » et « 0 », donc « 10 erreurs » ne peut pas
             # passer pour « 0 erreurs » (et réciproquement).
             r"(?i)\b[1-9]\d*\s*(?:erreurs?|errors?)\b",
+            # Récapitulatif français de la console : « * Erreurs: 3 * » ;
+            # et sujet « … - Notification d'erreur - Retrospect ».
+            r"(?i)erreurs?\s*[:=]\s*[1-9]",
+            r"(?i)notification d'erreur",
         ],
-        "warning": [r"(?i)with warnings", r"(?i)avertissement",
+        "warning": [r"(?i)with warnings",
+                    # « * Avertissements: 4 * » (récapitulatif français) —
+                    # évalué APRÈS les erreurs : « Erreurs: 3, Avert.: 4 »
+                    # reste une erreur.
+                    r"(?i)avertissements?\s*[:=]\s*[1-9]",
+                    r"(?i)avertissement",
                     # Digest quotidien « Retrospect : état pour <date> » :
                     # une sauvegarde interrompue par l'opérateur mérite un
                     # coup d'œil, pas un vert silencieux.
@@ -80,14 +89,24 @@ DEFAULT_PATTERNS = {
             # « \bfrom\s+ » ancré ; l'ancien « de (…) » capturait n'importe
             # quel mot après « de » dans un corps français (« de sauvegarde »,
             # « de fichiers »…) et polluait l'association client.
+            # « Client : SBSSERVER (…) » dans les notifications de la
+            # console : c'est la machine sauvegardée.
             "machine": [r"(?i)\bfrom\s+([A-Za-z0-9._-]+)",
-                        r"(?i)ordinateur\s+([A-Za-z0-9._-]+)"],
+                        r"(?i)ordinateur\s+([A-Za-z0-9._-]+)",
+                        r"(?i)\bclient\s*:\s*([A-Za-z0-9._-]+)"],
             "job": [r"[Ss]cript\s+[«\"']([^»\"']+)"],
-            # Nomenclature « ProActive - Remote - <Compagnie> - N erreurs » :
-            # le CLIENT est le nom de compagnie du sujet. Groupe paresseux +
-            # fin ancrée sur « - N erreurs » : un nom à trait d'union
+            # Nomenclature « ProActive - Remote - <Compagnie> - N erreurs
+            # [, M avertissements][ - Retrospect] » ou « … - Notification
+            # d'erreur - Retrospect » : le CLIENT est le nom de compagnie du
+            # sujet. Groupe paresseux + fin ancrée : un nom à trait d'union
             # (« Ste-Foy Dentaire ») reste entier. Préfixes RE:/TR: tolérés.
             "client": [r"(?i)^\s*(?:(?:re|tr|fwd?)\s*:\s*)*proactive\s*-\s*"
+                       r"remote\s*-\s*(.+?)\s*-\s*"
+                       r"(?:\d+\s*(?:erreurs?|errors?)"
+                       r"(?:\s*,\s*\d+\s*avertissements?)?"
+                       r"|notification d'erreur)"
+                       r"(?:\s*-\s*retrospect)?\s*$",
+                       r"(?i)^\s*(?:(?:re|tr|fwd?)\s*:\s*)*proactive\s*-\s*"
                        r"remote\s*-\s*(.+?)\s*-\s*\d+\s*"
                        r"(?:erreurs?|errors?)\s*$"],
         },
@@ -306,12 +325,29 @@ def _detect_product(cfg: dict, text: str) -> str:
     return "macrium"
 
 
-def _classify_text(pats: dict, text: str) -> tuple[str, str]:
+def _problem_context(text: str, m) -> str:
+    """Texte autour du motif d'erreur/avertissement déclencheur — c'est LA
+    ligne utile (« erreur -519 (échec de la communication réseau) »), à
+    montrer d'emblée plutôt que noyée dans l'extrait du corps."""
+    start = max(0, m.start() - 40)
+    frag = re.sub(r"\s+", " ", text[start:m.end() + 150]).strip()
+    if start > 0 and " " in frag:
+        # Ne pas commencer en plein mot : couper au premier espace.
+        frag = "… " + frag.split(" ", 1)[1]
+    return frag[:200]
+
+
+def _classify_text(pats: dict, text: str) -> tuple[str, str, str]:
+    """(statut, motif déclencheur, contexte du problème). Le contexte n'est
+    rempli que pour les erreurs/avertissements."""
     for key, st in _ORDER:
-        hit = _first_match(pats.get(key), text)
-        if hit:
-            return st, hit
-    return STATUS_UNKNOWN, ""
+        for rx in pats.get(key) or []:
+            m = rx.search(text)
+            if m:
+                prob = ("" if st == STATUS_SUCCESS
+                        else _problem_context(text, m))
+                return st, rx.pattern, prob
+    return STATUS_UNKNOWN, "", ""
 
 
 def classify(cfg: dict, mail: RawMail) -> BackupEvent:
@@ -326,16 +362,17 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
     # journal joint (« failed to read sector, retry ok ») ne doit pas
     # renverser le verdict du courriel lui-même. Le filet générique couvre
     # les courriels d'autres systèmes (mode client_folders).
-    status, matched = _classify_text(pats, text_mail)
+    status, matched, problem = _classify_text(pats, text_mail)
     if status == STATUS_UNKNOWN:
-        status, matched = _classify_text(_generic_compiled(), text_mail)
+        status, matched, problem = _classify_text(_generic_compiled(),
+                                                  text_mail)
     # Étage 2 — pièces jointes, seulement si le courriel seul reste inconnu
     # (rapports dont tout le contenu utile est dans la pièce jointe).
     if status == STATUS_UNKNOWN and mail.attachments_text:
-        status, matched = _classify_text(pats, mail.attachments_text)
+        status, matched, problem = _classify_text(pats, mail.attachments_text)
         if status == STATUS_UNKNOWN:
-            status, matched = _classify_text(_generic_compiled(),
-                                             mail.attachments_text)
+            status, matched, problem = _classify_text(_generic_compiled(),
+                                                      mail.attachments_text)
     return BackupEvent(
         product=product,
         status=status,
@@ -348,6 +385,7 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
         job=_extract(pats["extract"].get("job"), mail.subject, mail.body,
                      mail.attachments_text),
         matched_pattern=matched,
+        problem=problem,
         # Borné à 5000 caractères AVANT la normalisation : l'extrait affiché
         # fait 500 caractères, inutile de normaliser un corps de 200 Ko.
         excerpt=re.sub(r"\s+", " ", mail.body[:5000]).strip()[:500],
@@ -479,7 +517,8 @@ def current_states(cfg: dict, events: list[BackupEvent],
     for evs in job_matches(cfg, events).values():
         claimed.update(id(e) for e in evs)
     out = [{"key": f"tache:{s.name}", "nom": s.name, "client": s.client,
-            "produit": s.product, "etat": s.status, "dernier": s.last_event}
+            "produit": s.product, "etat": s.status, "dernier": s.last_event,
+            "note": s.due_note}
            for s in states]
     latest: dict = {}
     for ev in sorted(events, key=lambda e: e.received):  # le plus récent gagne
@@ -492,7 +531,7 @@ def current_states(cfg: dict, events: list[BackupEvent],
         out.append({"key": f"{product}:{who}:{what}",
                     "nom": f"{who} — {what}" if what != who else who,
                     "client": ev.client, "produit": product,
-                    "etat": ev.status, "dernier": ev})
+                    "etat": ev.status, "dernier": ev, "note": ""})
     return out
 
 

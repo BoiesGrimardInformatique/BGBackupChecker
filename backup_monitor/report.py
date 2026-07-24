@@ -143,6 +143,11 @@ tr.detail code { font-size: 0.78rem; background: var(--surface);
   text-align: right; }
 .note { color: var(--muted); font-size: 0.78rem; margin-top: 24px; }
 .empty { padding: 14px; color: var(--muted); font-size: 0.85rem; }
+.prob { display: block; font-size: 0.78rem; margin-top: 2px;
+        overflow-wrap: anywhere; }
+.prob-erreur { color: var(--critical); }
+.prob-avert { color: var(--serious); }
+#problemes td.depuis { white-space: nowrap; }
 .banner { border: 1px solid var(--serious); border-left-width: 4px;
           background: var(--surface); border-radius: 8px;
           padding: 10px 14px; margin-top: 16px; font-size: 0.85rem; }
@@ -354,6 +359,64 @@ def _tiles(counts: dict, basis: str) -> str:
             f'<p class="meta">{_esc(basis)}</p>')
 
 
+MAX_PROBLEM_ROWS = 120
+
+
+def _problems_section(cfg: dict, events: list[BackupEvent],
+                      states: list[JobState], history: dict | None,
+                      now: datetime) -> str:
+    """LA vue de triage du matin : toutes les tâches actuellement en
+    erreur / manquantes / en avertissement, du plus grave au moins grave,
+    avec depuis quand (historique) et le détail du problème extrait du
+    courriel — sans avoir à déplier quoi que ce soit."""
+    entries = [t for t in current_states(cfg, events, states)
+               if t["etat"] in (STATUS_ERROR, STATUS_MISSING,
+                                STATUS_WARNING)]
+    if not entries:
+        return ("<h2>Problèmes en cours</h2>"
+                '<div class="wrap"><p class="empty">✓ Aucun problème en '
+                "cours — toutes les tâches suivies sont au vert.</p></div>")
+    entries.sort(key=lambda t: (SEVERITY.index(t["etat"]),
+                                t["client"] or "~", t["nom"]))
+    hist_taches = (history or {}).get("taches") or {}
+    rows = []
+    for t in entries[:MAX_PROBLEM_ROWS]:
+        last = t["dernier"]
+        depuis = "—"
+        jours = (hist_taches.get(t["key"]) or {}).get("jours") or {}
+        n, first = history_mod.streak(jours, now)
+        if n > 1:
+            depuis = f"{n} j (depuis le {first})"
+        elif n == 1:
+            depuis = "aujourd'hui"
+        detail = ((last.problem if last else "") or t.get("note", "")
+                  or (last.subject if last else ""))
+        accent = (' class="accent-critical"'
+                  if t["etat"] == STATUS_ERROR else ' class="accent-serious"')
+        rows.append(
+            f"<tr{accent}><td>{_badge(t['etat'])}</td>"
+            f"<td>{_esc(t['client'] or NO_CLIENT)}</td>"
+            f"<td>{_esc(t['nom'])}</td>"
+            f"<td>{_esc(PRODUCT_LABELS.get(t['produit'], t['produit']))}</td>"
+            f'<td class="depuis">{_esc(depuis)}</td>'
+            f"{_dt_cell(last.received if last else None)}"
+            f"<td>{_esc(detail[:220])}</td></tr>")
+    trunc = ""
+    if len(entries) > MAX_PROBLEM_ROWS:
+        trunc = (f'<p class="meta">{len(entries) - MAX_PROBLEM_ROWS} '
+                 "problème(s) supplémentaire(s) non listé(s) ici — voir la "
+                 "vue par client et les courriels.</p>")
+    return (
+        f"<h2>Problèmes en cours ({len(entries)})</h2>"
+        '<div class="wrap" id="problemes"><table><thead><tr>'
+        "<th>État</th><th>Client</th><th>Tâche</th><th>Produit</th>"
+        "<th>Depuis</th><th>Dernier signe</th><th>Détail</th>"
+        f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+        '<p class="meta">Du plus grave au moins grave — « Depuis » vient de '
+        "l'historique quotidien ; le détail est extrait du courriel autour "
+        f"du motif déclencheur.</p>{trunc}")
+
+
 def _jobs_table(states: list[JobState]) -> str:
     if not states:
         return ('<div class="wrap"><p class="empty">Aucune tâche attendue '
@@ -449,6 +512,15 @@ def _history_section(cfg: dict, history: dict | None, now: datetime) -> str:
         f"difficulté sont en tête.</p>{trunc}")
 
 
+def _problem_line(ev: BackupEvent) -> str:
+    """Le détail du problème directement SOUS le sujet, en couleur d'état —
+    plus besoin de déplier le courriel pour savoir ce qui cloche."""
+    if not ev.problem or ev.status not in (STATUS_ERROR, STATUS_WARNING):
+        return ""
+    cls = "prob-erreur" if ev.status == STATUS_ERROR else "prob-avert"
+    return f'<span class="prob {cls}">⤷ {_esc(ev.problem[:180])}</span>'
+
+
 def _detail_row(ev: BackupEvent) -> str:
     pattern = (f"<code>{_esc(ev.matched_pattern)}</code>"
                if ev.matched_pattern else
@@ -456,11 +528,15 @@ def _detail_row(ev: BackupEvent) -> str:
     att = ""
     if ev.attachments_note:
         att = f"<dt>Pièces jointes</dt><dd>{_esc(ev.attachments_note)}</dd>"
+    prob = ""
+    if ev.problem:
+        prob = f"<dt>Problème</dt><dd>{_esc(ev.problem)}</dd>"
     return (
         '<tr class="detail" hidden><td colspan="8"><dl>'
         f"<dt>Expéditeur</dt><dd>{_esc(ev.sender) or '—'}</dd>"
         f"<dt>Dossier</dt><dd>{_esc(ev.folder)}</dd>"
         f"<dt>Motif déclencheur</dt><dd>{pattern}</dd>"
+        f"{prob}"
         f"{att}"
         f"<dt>Extrait</dt><dd>{_esc(ev.excerpt) or '(corps vide)'}</dd>"
         "</dl></td></tr>"
@@ -486,7 +562,7 @@ def _events_table(events: list[BackupEvent], max_rows: int) -> str:
         # même façon — « echec » trouve « Échec ».
         haystack = fold_text(" ".join(
             [ev.subject, ev.machine, ev.job, ev.sender, ev.folder,
-             ev.client, ev.excerpt, ev.attachments_note]))
+             ev.client, ev.excerpt, ev.attachments_note, ev.problem]))
         accent = ' accent-critical' if ev.status == STATUS_ERROR else ""
         rows.append(
             f'<tr class="row{accent}" data-produit="{_esc(ev.product)}" '
@@ -501,7 +577,7 @@ def _events_table(events: list[BackupEvent], max_rows: int) -> str:
             f"<td>{_badge(ev.status)}</td>"
             f"<td>{_esc(ev.machine or '—')}</td>"
             f"<td>{_esc(ev.job or '—')}</td>"
-            f"<td>{_esc(ev.subject)}</td>"
+            f"<td>{_esc(ev.subject)}{_problem_line(ev)}</td>"
             "</tr>"
             f"{_detail_row(ev)}"
         )
@@ -666,6 +742,7 @@ généré {now.strftime("%Y-%m-%d %H:%M")} · <span class="rel"></span></span>
 {refresh_label} · {len(events)} courriels analysés</p>
 {_error_banner(fetch_errors)}
 {_tiles(counts, basis)}
+{_problems_section(cfg, events, states, history, now)}
 {_client_summary(cfg, states, events, now)}
 <h2 id="taches">État par tâche attendue</h2>
 {_jobs_table(states)}
