@@ -169,7 +169,9 @@ def build(cfg: dict, events, states, fetch_errors, autotest_result,
         add(f"{e.received:%Y-%m-%d %H:%M} [{e.product}] "
             f"({e.folder}) {e.subject[:90]}")
         if e.excerpt:
-            add(f"    extrait : {e.excerpt[:160]}")
+            # Extrait complet (500) : c'est la matière première du
+            # calibrage — 160 caractères coupaient avant le contenu utile.
+            add(f"    extrait : {e.excerpt[:500]}")
     if len(unknown) > 30:
         add(f"… et {len(unknown) - 30} autres (voir diagnose).")
 

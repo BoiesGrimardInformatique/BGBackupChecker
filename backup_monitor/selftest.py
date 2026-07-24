@@ -328,6 +328,19 @@ def _checks() -> list[tuple[str, bool, str]]:
                     "Ruscio Studio Client : SBSSERVER * Erreurs : 0 *",
                     "Sauvegardes/Ruscio studio", "auto",
                     client="Ruscio studio"),
+            # 3e rapport diagnostic réel : dépôt Site Manager injoignable,
+            # opération bloquée par Macrium Image Guardian.
+            RawMail("Win-Backups: Site Manager Notification Email",
+                    "b@test.local", now - timedelta(minutes=12),
+                    "Repository Uncontactable Repository NAS-JANCOR has "
+                    "become uncontactable Please check the Site Manager "
+                    "for further information.",
+                    "Sauvegardes/Jancor", "auto", client="Jancor"),
+            RawMail("Macrium Image Guardian - Event - SAUVEGARDE",
+                    "b@test.local", now - timedelta(minutes=13),
+                    "Blocked file operation File: E:\\MacRium\\SRV-X\\"
+                    "DF367FE9701DF709-31-31.mrimg Process: Blocked file "
+                    "operation", "Sauvegardes/Hogue", "auto", client="Hogue"),
         ]
         rev = {e.subject: e for e in analyze(cfg, reels)}
         cob = rev["Backup Summum (SERVEUR-PC)"]
@@ -396,6 +409,16 @@ def _checks() -> list[tuple[str, bool, str]]:
               rcn.product == "retrospect" and rcn.status == STATUS_SUCCESS
               and rcn.machine == "SBSSERVER",
               f"{rcn.product}/{rcn.status}/{rcn.machine}")
+        unc = rev["Win-Backups: Site Manager Notification Email"]
+        check("Site Manager : « Repository Uncontactable » = avertissement",
+              unc.product == "macrium" and unc.status == STATUS_WARNING,
+              f"{unc.product}/{unc.status}")
+        mig = rev["Macrium Image Guardian - Event - SAUVEGARDE"]
+        check("Image Guardian : opération bloquée = avertissement, machine "
+              "du sujet",
+              mig.product == "macrium" and mig.status == STATUS_WARNING
+              and mig.machine == "SAUVEGARDE",
+              f"{mig.product}/{mig.status}/{mig.machine}")
 
         # Nomenclature ProActive complète (capture réelle) : suffixes
         # « , M avertissements - Retrospect » et « Notification d'erreur »,

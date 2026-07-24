@@ -40,8 +40,13 @@ DEFAULT_PATTERNS = {
             # Sujet « … - Backup with Warnings », corps « Warning :| » —
             # l'émoticône tiède du modèle Macrium, comme « Failed :( ».
             r"(?i)backup with warnings", r"(?i)warning\s*:\|",
-            # Macrium Site Manager : dépôt de sauvegarde presque plein.
+            # Macrium Site Manager : dépôt presque plein ou injoignable.
             r"(?i)disk space low",
+            r"(?i)\buncontactable\b",
+            # Macrium Image Guardian : opération bloquée sur un fichier de
+            # sauvegarde — la protection a fonctionné, mais un processus
+            # non autorisé y a touché : à regarder.
+            r"(?i)blocked file operation",
         ],
         "success": [
             r"(?i)completed successfully", r"(?i)backup completed",
@@ -58,7 +63,9 @@ DEFAULT_PATTERNS = {
                         r"(?i)ordinateur\s*:?\s+([A-Za-z0-9._-]+)",
                         # Sujet type « SRV1(Backups) Macrium Reflect - ... » :
                         # le nom de machine précède « Macrium Reflect ».
-                        r"^([A-Za-z0-9._+-]+)\s*(?:\([^)]*\))?\s*Macrium Reflect"],
+                        r"^([A-Za-z0-9._+-]+)\s*(?:\([^)]*\))?\s*Macrium Reflect",
+                        # « Macrium Image Guardian - Event - <machine> ».
+                        r"(?i)image guardian - event - ([A-Za-z0-9._-]+)"],
             "job": [r"(?i)backup definition[\s:'\"]+([^'\"\r\n]+)"],
         },
     },
