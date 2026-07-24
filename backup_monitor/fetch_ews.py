@@ -99,7 +99,9 @@ def fetch(cfg: dict, password: str) -> tuple[list[RawMail], list[str]]:
     la collecte des autres : l'erreur est rapportée dans la seconde liste."""
     account = _connect(cfg, password)
     tz = EWSTimeZone(cfg["analysis"]["timezone"])
-    since = datetime.now(tz) - timedelta(days=int(cfg["analysis"]["days_back"]))
+    days = int(cfg["analysis"]["days_back"])
+    # days_back <= 0 : aucune limite de date — tout le dossier est analysé.
+    since = (datetime.now(tz) - timedelta(days=days)) if days > 0 else None
     att_conf = cfg.get("attachments") or {}
     fields = ["subject", "sender", "datetime_received", "text_body"]
     if att_conf.get("enabled"):
@@ -122,11 +124,9 @@ def fetch(cfg: dict, password: str) -> tuple[list[RawMail], list[str]]:
 def _fetch_folder(cfg, account, product, path, since, tz, fields, att_conf,
                   mails: list[RawMail]) -> int:
     folder = _resolve_folder(account, path)
-    qs = (
-        folder.filter(datetime_received__gte=since)
-        .only(*fields)
-        .order_by("-datetime_received")
-    )
+    base = (folder.filter(datetime_received__gte=since)
+            if since is not None else folder.all())
+    qs = base.only(*fields).order_by("-datetime_received")
     skipped = 0
     for item in qs:
         # Isolation PAR COURRIEL : un élément corrompu est ignoré et compté,

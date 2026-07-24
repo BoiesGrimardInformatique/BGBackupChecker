@@ -60,9 +60,15 @@ client_folders: []
 #  - "Boîte de réception/Sauvegardes"
 
 analysis:
-  # Fenêtre d'analyse : nombre de jours de courriels relus à chaque exécution
+  # Fenêtre d'analyse : nombre de jours de courriels relus à chaque exécution.
+  # 0 = AUCUNE limite de date : tout le dossier est analysé (premier passage
+  # long sur une grosse boîte ; le cache absorbe les suivants). Ponctuel :
+  # lancer.bat run --days 0
   days_back: 14
   timezone: America/Toronto
+  # Les dossiers choisis (folders.*) incluent leurs SOUS-DOSSIERS — un tri
+  # par machine ou par année ne cache rien. false = dossier seul.
+  include_subfolders: true
 
 # Lecture des pièces jointes — DÉSACTIVÉE par défaut. Sécurité multicouche :
 # jamais exécutées, jamais ouvertes par une application, jamais rendues,

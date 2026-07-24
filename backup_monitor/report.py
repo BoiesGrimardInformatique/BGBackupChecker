@@ -308,6 +308,21 @@ def _esc(s: str) -> str:
     return html.escape(str(s or ""))
 
 
+def _latest_by_task(events: list[BackupEvent]) -> list[BackupEvent]:
+    """Dernier état connu de chaque tâche observée (produit + machine/client
+    + tâche — mêmes clés stables que les notifications). Sert de base aux
+    tuiles et à la vue par client quand aucune expected_job n'est
+    configurée : un échec vieux de 3 jours SANS courriel plus récent pour la
+    même tâche reste visible, là où un décompte des dernières 24 h le
+    masquait complètement."""
+    latest: dict = {}
+    for ev in sorted(events, key=lambda e: e.received):  # le plus récent gagne
+        who = ev.client or ev.machine or ev.folder
+        what = ev.job or ev.machine or "courriels"
+        latest[(ev.product, who, what)] = ev
+    return list(latest.values())
+
+
 def _badge(status: str) -> str:
     icon, label, cls = BADGES.get(status, BADGES[STATUS_UNKNOWN])
     return (f'<span class="badge c-{cls}"><span class="ic">{icon}</span>'
@@ -469,8 +484,14 @@ def _events_table(events: list[BackupEvent], max_rows: int) -> str:
     if not events:
         return ('<div class="wrap" id="mails"><p class="empty">Aucun courriel '
                 "trouvé dans la fenêtre d'analyse.</p></div>")
+    # Les PROBLÈMES ne sont jamais tronqués par max_rows : une erreur ou un
+    # avertissement plus ancien que les N courriels les plus récents reste
+    # affiché — c'est précisément ce qu'on cherche à ne pas rater.
+    shown_events = list(events[:max_rows])
+    shown_events += [ev for ev in events[max_rows:]
+                     if ev.status in (STATUS_ERROR, STATUS_WARNING)]
     rows = []
-    for ev in events[:max_rows]:
+    for ev in shown_events:
         # L'extrait du corps et la note des pièces jointes font partie du
         # texte cherchable : taper un mot-clé (« VSS », un nom de volume…)
         # ressort aussi les courriels qui ne l'ont que dans leur contenu.
@@ -498,9 +519,11 @@ def _events_table(events: list[BackupEvent], max_rows: int) -> str:
             f"{_detail_row(ev)}"
         )
     trunc = ""
-    if len(events) > max_rows:
-        trunc = (f'<p class="meta">{len(events) - max_rows} courriels plus '
-                 "anciens non affichés (voir report.max_rows).</p>")
+    hidden = len(events) - len(shown_events)
+    if hidden > 0:
+        trunc = (f'<p class="meta">{hidden} courriel(s) plus ancien(s) SANS '
+                 "problème non affiché(s) (report.max_rows) — les erreurs et "
+                 "avertissements plus anciens restent toujours affichés.</p>")
     return ('<div class="wrap" id="mails"><table><thead><tr>'
             '<th aria-label="Détail"></th><th>Reçu</th><th>Client</th>'
             "<th>Produit</th><th>État</th><th>Machine</th><th>Tâche</th>"
@@ -523,9 +546,8 @@ def _client_summary(states: list[JobState], events: list[BackupEvent],
         for s in states:
             bump(s.client, s.status)
     else:
-        for ev in events:
-            if (now - ev.received).total_seconds() <= 24 * 3600:
-                bump(ev.client, ev.status)
+        for ev in _latest_by_task(events):
+            bump(ev.client, ev.status)
     if not groups or list(groups) == [NO_CLIENT]:
         return ""  # aucun client défini : la section n'apporterait rien
 
@@ -625,11 +647,11 @@ def render(cfg: dict, events: list[BackupEvent], states: list[JobState],
                  "Cliquer une tuile pour filtrer les courriels.")
     else:
         counts = {}
-        for ev in events:
-            if (now - ev.received).total_seconds() <= 24 * 3600:
-                counts[ev.status] = counts.get(ev.status, 0) + 1
-        basis = ("Comptes basés sur les courriels des dernières 24 h "
-                 "(aucune tâche attendue configurée). "
+        for ev in _latest_by_task(events):
+            counts[ev.status] = counts.get(ev.status, 0) + 1
+        basis = ("Comptes basés sur le DERNIER état connu de chaque tâche "
+                 "observée (aucune tâche attendue configurée) — un échec "
+                 "sans courriel plus récent reste compté. "
                  "Cliquer une tuile pour filtrer les courriels.")
 
     refresh_label = (f"{refresh // 60} min" if refresh % 60 == 0

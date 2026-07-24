@@ -319,10 +319,10 @@ def main() -> None:
                         help="chemin de config.yaml (défaut : à côté du paquet)")
     parser.add_argument("--watch", type=int, metavar="SECONDES", default=0,
                         help="boucle continue, une analyse toutes les N secondes")
-    parser.add_argument("--days", type=int, metavar="N", default=0,
+    parser.add_argument("--days", type=int, metavar="N", default=None,
                         help="fenêtre d'analyse pour CETTE exécution (jours), "
-                             "sans modifier config.yaml — pratique pour un "
-                             "diagnose ou un run ponctuel plus profond")
+                             "sans modifier config.yaml ; 0 = TOUT le "
+                             "dossier, sans limite de date")
     parser.add_argument("--open", action="store_true",
                         help="ouvrir le tableau dans le navigateur après "
                              "l'analyse (run)")
@@ -338,8 +338,8 @@ def main() -> None:
                         help="avec --fail-on-error : les avertissements "
                              "comptent aussi comme un problème")
     args = parser.parse_args()
-    if args.days < 0:
-        parser.error("--days doit être un nombre de jours ≥ 1")
+    if args.days is not None and args.days < 0:
+        parser.error("--days doit être ≥ 0 (0 = tout le dossier)")
     if args.command == "find" and not args.terms:
         parser.error("find : indiquer au moins un mot-clé — "
                      "ex. « python -m backup_monitor find VSS »")
@@ -366,9 +366,10 @@ def main() -> None:
                       require_folders=(args.command in
                                        ("run", "diagnose", "suggest-jobs",
                                         "find")))
-    if args.days:
+    if args.days is not None:
         # Fenêtre ponctuelle pour cette exécution seulement — config.yaml
-        # n'est pas modifié (s'applique à run, diagnose, suggest-jobs, test).
+        # n'est pas modifié (s'applique à run, diagnose, suggest-jobs, find,
+        # test). 0 = tout le dossier, sans limite de date.
         cfg["analysis"]["days_back"] = args.days
     if args.no_cache:
         # Relecture complète forcée : le cache est ignoré au chargement mais

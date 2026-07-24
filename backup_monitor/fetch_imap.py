@@ -80,8 +80,11 @@ def fetch(cfg: dict, password: str) -> tuple[list[RawMail], list[str]]:
     """Retourne (courriels, erreurs). Un dossier illisible n'interrompt pas
     la collecte des autres : l'erreur est rapportée dans la seconde liste."""
     tz = load_timezone(cfg["analysis"]["timezone"])
-    since = datetime.now(tz) - timedelta(days=int(cfg["analysis"]["days_back"]))
-    since_imap = f"{since.day:02d}-{_MONTHS[since.month - 1]}-{since.year}"
+    days = int(cfg["analysis"]["days_back"])
+    # days_back <= 0 : aucune limite de date — tout le dossier est analysé.
+    since = (datetime.now(tz) - timedelta(days=days)) if days > 0 else None
+    since_imap = (f"{since.day:02d}-{_MONTHS[since.month - 1]}-{since.year}"
+                  if since else "")
     conn = _connect(cfg, password)
     mails: list[RawMail] = []
     errors: list[str] = []
@@ -109,7 +112,8 @@ def _fetch_folder(cfg, conn, product, path, since, since_imap, tz,
     status, _ = conn.select(f'"{path}"', readonly=True)
     if status != "OK":
         raise RuntimeError(f"Dossier IMAP introuvable : {path}")
-    status, data = conn.search(None, f"(SINCE {since_imap})")
+    critere = f"(SINCE {since_imap})" if since_imap else "ALL"
+    status, data = conn.search(None, critere)
     if status != "OK":
         return 0
     skipped = 0
@@ -134,7 +138,7 @@ def _fetch_folder(cfg, conn, product, path, since, since_imap, tz,
                 # juste reçu et masquerait un backup manquant) — on l'ignore.
                 skipped += 1
                 continue
-            if received < since:
+            if since is not None and received < since:
                 continue
             sender_addr = email.utils.parseaddr(msg.get("From", ""))[1]
             att_conf = cfg.get("attachments") or {}

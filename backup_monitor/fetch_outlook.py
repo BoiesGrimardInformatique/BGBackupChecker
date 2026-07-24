@@ -155,22 +155,22 @@ def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
     """Retourne (courriels, erreurs). Un dossier illisible n'interrompt pas
     la collecte des autres : l'erreur est rapportée dans la seconde liste."""
     tz = load_timezone(cfg["analysis"]["timezone"])
-    since = datetime.now(tz) - timedelta(days=int(cfg["analysis"]["days_back"]))
+    days = int(cfg["analysis"]["days_back"])
+    # days_back <= 0 : AUCUNE limite de date — tout le dossier est analysé.
+    since = (datetime.now(tz) - timedelta(days=days)) if days > 0 else None
     store = (cfg.get("outlook") or {}).get("store", "")
     ns = _namespace()
     cache = mailcache.open_cache(cfg)
     mails: list[RawMail] = []
     errors: list[str] = []
-    # Dossiers par produit (macrium/retrospect explicites).
+    # Dossiers par produit (macrium/retrospect explicites) : le dossier
+    # choisi ET ses sous-dossiers (analysis.include_subfolders).
     for product, paths in cfg["folders"].items():
         for path in paths or []:
             try:
                 folder = _resolve_folder(ns, path, store)
-                skipped = _read_items(cfg, folder, path, product, "",
-                                      since, tz, mails, cache)
-                if skipped:
-                    errors.append(f"[{product}] {path} : {skipped} "
-                                  "courriel(s) illisible(s) ignoré(s)")
+                _walk_product(cfg, folder, path, product, since, tz,
+                              mails, errors, cache)
             except Exception as exc:
                 errors.append(f"[{product}] {path} : {exc}")
     # Dossiers parents « auto » : chaque sous-dossier est un client.
@@ -182,6 +182,31 @@ def fetch(cfg: dict, password=None) -> tuple[list[RawMail], list[str]]:
             errors.append(f"[auto] {parent} : {exc}")
     cache.save()
     return mails, errors
+
+
+def _walk_product(cfg, folder, path, product, since, tz,
+                  mails: list[RawMail], errors: list[str], cache) -> None:
+    """Lit un dossier produit ET ses sous-dossiers : un tri par sous-dossier
+    (par machine, par année…) ne cache plus rien. Désactivable avec
+    analysis.include_subfolders: false."""
+    skipped = _read_items(cfg, folder, path, product, "", since, tz,
+                          mails, cache)
+    if skipped:
+        errors.append(f"[{product}] {path} : {skipped} "
+                      "courriel(s) illisible(s) ignoré(s)")
+    if not (cfg.get("analysis") or {}).get("include_subfolders", True):
+        return
+    try:
+        subs = list(folder.Folders)
+    except Exception:
+        subs = []
+    for sub in subs:
+        try:
+            name = sub.Name
+        except Exception:
+            continue
+        _walk_product(cfg, sub, f"{path}/{name}", product, since, tz,
+                      mails, errors, cache)
 
 
 def _fetch_client_parent(cfg, ns, store, parent_path, since, tz,
@@ -227,14 +252,37 @@ def _walk_client(cfg, folder, path, client, since, tz,
                      mails, errors, cache)
 
 
+def _recent_items(folder, since):
+    """Éléments du dossier, filtrés par date côté MAPI quand c'est possible.
+
+    L'ancienne approche « trier puis s'arrêter au premier élément trop
+    vieux » reposait sur le tri COM : s'il échoue SILENCIEUSEMENT (types
+    mixtes, dossier particulier), l'ordre naturel — souvent du plus ancien
+    au plus récent — faisait couper la lecture immédiatement : dossier
+    perçu comme vide, sans aucune erreur signalée. Plus aucune coupe ne
+    dépend du tri : Restrict filtre côté MAPI, et s'il échoue on parcourt
+    TOUT le dossier (le filtre par date est réappliqué courriel par
+    courriel dans l'appelant, dans tous les cas)."""
+    items = folder.Items
+    if since is not None:
+        try:
+            # Format de date américain : le plus largement accepté par le
+            # moteur JET d'Outlook, indépendamment de la locale du poste.
+            return items.Restrict(
+                "[ReceivedTime] >= '" + since.strftime("%m/%d/%Y %H:%M") + "'")
+        except Exception:
+            pass  # repli : parcours complet ci-dessous
+    return items
+
+
 def _read_items(cfg, folder, path, product, client, since, tz,
                 mails: list[RawMail], cache) -> int:
-    """Lit les courriels récents d'UN dossier (déjà résolu) et les ajoute à
-    `mails`. `product` peut être « auto » (détecté ensuite au contenu) et
-    `client` le nom du dossier client (vide pour les dossiers par produit).
+    """Lit les courriels d'UN dossier (déjà résolu) et les ajoute à `mails`.
+    `product` peut être « auto » (détecté ensuite au contenu) et `client` le
+    nom du dossier client (vide pour les dossiers par produit). `since` à
+    None = aucune limite de date (analysis.days_back: 0).
     Retourne le nombre de courriels illisibles ignorés."""
-    items = folder.Items
-    items.Sort("[ReceivedTime]", True)  # du plus récent au plus ancien
+    items = _recent_items(folder, since)
     skipped = 0
     for item in items:
         # Isolation PAR COURRIEL : un seul élément corrompu (corps non
@@ -250,8 +298,8 @@ def _read_items(cfg, folder, path, product, client, since, tz,
             except (OSError, OverflowError, ValueError):
                 skipped += 1
                 continue
-            if received < since:
-                break  # items triés : tout le reste est plus ancien
+            if since is not None and received < since:
+                continue  # jamais de break : l'ordre n'est pas garanti
             # Cache : un courriel déjà lu lors d'un cycle précédent ne coûte
             # que trois propriétés légères (Class, ReceivedTime, EntryID) —
             # c'est la lecture du corps qui force Outlook à charger l'élément

@@ -27,7 +27,11 @@ DEFAULTS = {
     # Dossiers parents explorés récursivement : chaque sous-dossier est un
     # client (son nom), le produit est détecté au contenu. Mode Outlook.
     "client_folders": [],
-    "analysis": {"days_back": 14, "timezone": "America/Toronto"},
+    # days_back: 0 = AUCUNE limite de date (tout le dossier est analysé).
+    # include_subfolders : les dossiers choisis (folders.*) incluent leurs
+    # sous-dossiers — un tri par machine/année ne cache rien.
+    "analysis": {"days_back": 14, "timezone": "America/Toronto",
+                 "include_subfolders": True},
     "attachments": {
         "enabled": False,
         "allowed_senders": [],
