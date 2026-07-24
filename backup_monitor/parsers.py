@@ -140,35 +140,66 @@ GENERIC_PATTERNS = {
 }
 
 
+def _generic_compiled() -> dict:
+    global _GENERIC_COMPILED
+    if _GENERIC_COMPILED is None:
+        _GENERIC_COMPILED = {k: _compile_all(v)
+                             for k, v in GENERIC_PATTERNS.items()}
+    return _GENERIC_COMPILED
+
+
+_GENERIC_COMPILED = None
+
+
+def _compile_all(patterns: list) -> list:
+    """Compile une liste de motifs ; un motif invalide est simplement ignoré
+    (il ne matcherait jamais — même comportement qu'avant, sans le coût d'une
+    exception à chaque courriel)."""
+    out = []
+    for pat in patterns or []:
+        try:
+            out.append(re.compile(pat))
+        except re.error:
+            continue
+    return out
+
+
 def _patterns_for(cfg: dict, product: str) -> dict:
-    user = (cfg.get("parsers") or {}).get(product) or {}
+    """Motifs COMPILÉS d'un produit (défauts fusionnés avec config.yaml).
+    Compilés une seule fois par exécution — sur ~1300 courriels × ~30 motifs,
+    recompiler à chaque courriel dominait le temps d'analyse. Le cache est
+    invalidé si la section parsers change d'objet (autre config)."""
+    src = cfg.get("parsers")
+    cache = cfg.get("_compiled_patterns")
+    if cache is None or cache.get("_src") is not src:
+        cache = {"_src": src}
+        cfg["_compiled_patterns"] = cache
+    if product in cache:
+        return cache[product]
+    user = (src or {}).get(product) or {}
     base = DEFAULT_PATTERNS.get(product, {})
     merged = {}
     for key in ("failure", "warning", "success"):
-        merged[key] = user.get(key) if user.get(key) else base.get(key, [])
+        merged[key] = _compile_all(user.get(key) if user.get(key)
+                                   else base.get(key, []))
     extract = dict(base.get("extract", {}))
     extract.update(user.get("extract") or {})
-    merged["extract"] = extract
+    merged["extract"] = {k: _compile_all(v) for k, v in extract.items()}
+    cache[product] = merged
     return merged
 
 
-def _first_match(patterns: list[str], text: str) -> str | None:
-    for pat in patterns or []:
-        try:
-            if re.search(pat, text):
-                return pat
-        except re.error:
-            continue
+def _first_match(patterns: list, text: str) -> str | None:
+    for rx in patterns or []:
+        if rx.search(text):
+            return rx.pattern
     return None
 
 
-def _extract(patterns: list[str], *texts: str) -> str:
+def _extract(patterns: list, *texts: str) -> str:
     for text in texts:
-        for pat in patterns or []:
-            try:
-                m = re.search(pat, text)
-            except re.error:
-                continue
+        for rx in patterns or []:
+            m = rx.search(text)
             if m:
                 return (m.group(1) if m.groups() else m.group(0)).strip()
     return ""
@@ -230,13 +261,13 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
     # les courriels d'autres systèmes (mode client_folders).
     status, matched = _classify_text(pats, text_mail)
     if status == STATUS_UNKNOWN:
-        status, matched = _classify_text(GENERIC_PATTERNS, text_mail)
+        status, matched = _classify_text(_generic_compiled(), text_mail)
     # Étage 2 — pièces jointes, seulement si le courriel seul reste inconnu
     # (rapports dont tout le contenu utile est dans la pièce jointe).
     if status == STATUS_UNKNOWN and mail.attachments_text:
         status, matched = _classify_text(pats, mail.attachments_text)
         if status == STATUS_UNKNOWN:
-            status, matched = _classify_text(GENERIC_PATTERNS,
+            status, matched = _classify_text(_generic_compiled(),
                                              mail.attachments_text)
     return BackupEvent(
         product=product,
@@ -250,7 +281,9 @@ def classify(cfg: dict, mail: RawMail) -> BackupEvent:
         job=_extract(pats["extract"].get("job"), mail.subject, mail.body,
                      mail.attachments_text),
         matched_pattern=matched,
-        excerpt=re.sub(r"\s+", " ", mail.body).strip()[:500],
+        # Borné à 5000 caractères AVANT la normalisation : l'extrait affiché
+        # fait 500 caractères, inutile de normaliser un corps de 200 Ko.
+        excerpt=re.sub(r"\s+", " ", mail.body[:5000]).strip()[:500],
         attachments_note=mail.attachments_note,
         client=mail.client,
     )

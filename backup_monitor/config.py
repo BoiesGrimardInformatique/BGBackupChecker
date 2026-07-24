@@ -57,6 +57,9 @@ DEFAULTS = {
         "output": "tableau-backups.html",
         "refresh_seconds": 300,
         "max_rows": 100,
+        # Titre du tableau (en-tête et onglet du navigateur) — pratique pour
+        # le personnaliser par site ou par entreprise.
+        "title": "État des sauvegardes",
     },
     "parsers": {},
 }

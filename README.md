@@ -102,6 +102,40 @@ d'erreur à déchiffrer, on est guidé vers le choix des dossiers.
 - **Mode continu ponctuel** :
   `venv\Scripts\python -m backup_monitor run --watch 300`
 
+## Recherche par mots-clés et options pratiques
+
+**Ressortir les courriels contenant un mot** — deux façons :
+
+- **Commande `find`** : `lancer.bat find VSS` (ou
+  `python -m backup_monitor find VSS`) liste tous les courriels de la fenêtre
+  d'analyse contenant le mot — dans le **sujet, le corps, les pièces jointes
+  analysées, le dossier, le client ou l'expéditeur** — avec la date, le
+  dossier et un extrait autour du mot. Plusieurs mots = tous requis
+  (`find VSS "Comptable Plus"` cible un mot chez un client) ; insensible à la
+  casse. Combiner avec `--days 60` pour chercher plus loin que la fenêtre
+  courante.
+- **Recherche du tableau** : le champ de recherche du tableau HTML couvre
+  maintenant aussi l'**extrait du contenu** de chaque courriel (500 premiers
+  caractères) et la note des pièces jointes — taper « VSS » y ressort donc
+  aussi les courriels qui n'ont le mot que dans leur corps.
+
+Les deux recherches sont **insensibles à la casse et aux accents**
+(« echec » trouve « Échec ») et acceptent **plusieurs mots — tous requis**
+(« vss comptable » cible le mot chez un client).
+
+**Options de ligne de commande** (utilisables aussi via `lancer.bat`, qui
+transmet les arguments) :
+
+| Option | Effet |
+|---|---|
+| `--days N` | Fenêtre d'analyse ponctuelle (jours) pour CETTE exécution, sans modifier `config.yaml` — pratique pour un `diagnose`, un `find` ou un `run` plus profond |
+| `--open` | Ouvre le tableau dans le navigateur après l'analyse (`run`) |
+| `--no-cache` | Ignore le cache de collecte et relit tout depuis Outlook (le cache est reconstruit) — utile si un contenu semble périmé |
+| `--fail-on-warning` | Avec `--fail-on-error` : les avertissements comptent aussi comme un problème (code 2) |
+
+Le **titre du tableau** est personnalisable par site ou par entreprise :
+`report.title` dans `config.yaml` (en-tête et onglet du navigateur).
+
 ## Performance de collecte (cache local, mode Outlook)
 
 Le principal poste de coût d'un cycle est la lecture des corps de courriels
@@ -123,6 +157,11 @@ courriels sont lus en entier.
   changer la section `attachments` vide le cache (le texte extrait en
   dépend) ; recalibrer `parsers` n'exige **pas** de le vider — le classement
   se refait à chaque exécution sur le contenu brut.
+- L'analyse elle-même est optimisée pour les grosses boîtes : les motifs de
+  détection sont **compilés une seule fois par exécution** (plus de
+  recompilation à chaque courriel) et la préparation des extraits est bornée
+  même sur de très gros corps. Le poste de coût principal d'un cycle reste
+  la lecture Outlook, couverte par le cache ci-dessus.
 
 ## Pièces jointes (optionnel, désactivé par défaut)
 
@@ -276,7 +315,8 @@ systemd) : `0` = tout va bien, `1` = panne de l'outil, `2` = backups en
 erreur ou manquants, `3` = pas encore configuré, `4` = collecte partielle
 (dossiers ou courriels illisibles). Le « Dernier résultat » de la tâche
 planifiée devient donc directement exploitable par un RMM. Ajouter
-`--fail-on-unknown` pour que les courriels non reconnus comptent aussi.
+`--fail-on-unknown` pour que les courriels non reconnus comptent aussi, et
+`--fail-on-warning` pour que les avertissements comptent également.
 
 ## Modes de repli : EWS / IMAP (accès serveur direct, sans Outlook)
 
@@ -304,6 +344,39 @@ Sous Linux, `install.sh` et `systemd/installer-timer.sh` couvrent ce scénario.
   des échecs). Une régression se voit donc dès la commande suivante. La même
   batterie tourne en CI GitHub Actions à chaque poussée. À la version
   finale, passer `on_each_run` à `false`.
+
+## Envoyer un diagnostic (rapport-diagnostic.bat)
+
+Pour faire ajuster l'outil (motifs mal calibrés, courriels non reconnus…)
+sans accès au poste : **double-cliquer `rapport-diagnostic.bat`** (ou
+`lancer.bat rapport`). Il génère `rapport-diagnostic.txt` — environnement,
+résultat de l'autotest, configuration surveillée, comptes par produit/état,
+taux d'extraction, exemples par produit, cas d'échec des systèmes aux motifs
+encore déduits (SQL Server Agent, Proxmox, scripts), liste des courriels
+**non reconnus** avec extraits, état des tâches attendues et queue des
+journaux — puis l'ouvre dans le Bloc-notes.
+
+**Aucun envoi automatique** : le fichier reste local. Il contient des noms
+de clients/machines et des extraits de courriels de sauvegarde — **le relire
+avant de le transmettre** (il n'est jamais versionné : `.gitignore`).
+
+## Mise à jour depuis le ZIP du dépôt
+
+Si votre méthode de mise à jour est « supprimer le dossier puis re-extraire
+le ZIP », **préservez d'abord ces fichiers locaux** (ils sont à la racine du
+dossier et ne sont pas dans le ZIP) :
+
+| Fichier | Rôle | Si perdu |
+|---|---|---|
+| `config.yaml` | Toute votre configuration | À refaire avec `setup` + réglages manuels |
+| `historique.json` | Historique quotidien des tâches | La section Historique repart de la fenêtre d'analyse |
+| `dernier-etat.json` | Mémoire des notifications | Risque d'une salve de notifications au run suivant |
+
+Le plus simple : copier ces trois fichiers ailleurs, re-extraire le ZIP,
+puis les remettre. (`tableau-backups.html` et les journaux se régénèrent
+seuls ; le cache de collecte vit dans le profil du poste et survit à la
+mise à jour.) Après chaque mise à jour, l'autotest tourne à la première
+commande — une régression se verrait immédiatement.
 
 ## Dépannage
 

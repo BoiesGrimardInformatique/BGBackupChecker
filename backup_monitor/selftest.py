@@ -12,7 +12,7 @@ from . import (JobState, RawMail, STATUS_ERROR, STATUS_MISSING,
 from .attachments import extract, gate, looks_like_text, sender_allowed
 from .history import HISTORY_FILE, success_rate
 from .history import update as hist_update
-from .mailcache import MailCache, fingerprint
+from .mailcache import MailCache, fingerprint, open_cache
 from .notify import check_and_notify, transitions
 from .parsers import analyze, job_states, suggest_jobs
 from .report import render, write
@@ -170,6 +170,22 @@ def _checks() -> list[tuple[str, bool, str]]:
               .machine == "SRV-X",
               fiab_ev["Macrium Reflect Backup - extraction"].machine)
 
+        # Motifs précompilés : une regex utilisateur invalide est ignorée
+        # sans planter (les motifs valides continuent de classer), et une
+        # section parsers différente invalide bien le cache de compilation.
+        pc_cfg = {**cfg, "parsers": {"macrium": {
+            "failure": ["(", "(?i)backup aborted"]}}}
+        pc_ev = analyze(pc_cfg, [RawMail(
+            "Macrium Reflect Backup", "b@test.local", now,
+            "Backup aborted", "Backups/Macrium", "macrium")])
+        check("Motifs : regex invalide ignorée, les valides classent",
+              pc_ev[0].status == STATUS_ERROR, str(pc_ev[0]))
+        pc_ev2 = analyze(cfg, [RawMail(
+            "Macrium Reflect Backup", "b@test.local", now,
+            "Backup completed successfully", "Backups/Macrium", "macrium")])
+        check("Motifs : cache de compilation invalidé entre configs",
+              pc_ev2[0].status == STATUS_SUCCESS, str(pc_ev2[0]))
+
         # Regex invalide dans expected_jobs : la tâche doit apparaître en
         # erreur de configuration, jamais en faux vert (« matche tout »).
         bad_cfg = {**cfg, "expected_jobs": [
@@ -312,11 +328,82 @@ def _checks() -> list[tuple[str, bool, str]]:
         cdis = MailCache(cpath, "fp1", enabled=False).load()
         check("Cache désactivé : fichier purgé, aucune réutilisation",
               not os.path.exists(cpath) and cdis.get("id-2") is None)
+        # Option --no-cache (_refresh) : contenu existant ignoré au
+        # chargement, mais le cache est reconstruit par save().
+        ccfg = {"cache": {"enabled": True, "dir": "cache"}, "attachments": {},
+                "_dir": tmpdir, "_path": os.path.join(tmpdir, "c.yaml")}
+        cr = open_cache(ccfg)
+        cr.put("id-R", "S", "e@test.local", "corps", "", "")
+        cr.save()
+        refreshed = open_cache({**ccfg,
+                                "cache": {"enabled": True, "dir": "cache",
+                                          "_refresh": True}})
+        ignore_ok = refreshed.get("id-R") is None  # relecture forcée
+        refreshed.put("id-R", "S", "e@test.local", "corps", "", "")
+        refreshed.save()
+        rebuilt_ok = open_cache(ccfg).get("id-R") is not None
+        check("Option --no-cache : contenu ignoré mais cache reconstruit",
+              ignore_ok and rebuilt_ok)
         check("Cache : l'empreinte suit la config des pièces jointes",
               fingerprint({"attachments": {"enabled": True}})
               == fingerprint({"attachments": {"enabled": True}})
               and fingerprint({"attachments": {"enabled": True}})
               != fingerprint({"attachments": {"enabled": False}}))
+
+        # Commande find : extrait de contexte autour du mot-clé
+        from . import fold_text
+        from .__main__ import _context_excerpt
+        ctx = _context_excerpt(
+            "Journal de la nuit.\nErreur VSS 0x8004231f pendant l'image du "
+            "volume C: — nouvelle tentative planifiée.", "vss")
+        check("find : extrait de contexte autour du mot-clé",
+              "VSS" in ctx and "0x8004231f" in ctx and "\n" not in ctx, ctx)
+        # Recherche insensible aux accents : « echec » trouve « Échec », et
+        # l'extrait affiché garde le texte original (accents compris).
+        check("Recherche : pliage accents/casse (fold_text)",
+              fold_text("Échec RÉUSSI à Montréal") == "echec reussi a montreal",
+              fold_text("Échec RÉUSSI à Montréal"))
+        ctx2 = _context_excerpt("Sauvegarde terminée : Échec du script.",
+                                "echec")
+        check("find : « echec » trouve « Échec », extrait original conservé",
+              "Échec" in ctx2, ctx2)
+
+        # Rapport diagnostic : généré hors-ligne avec un faux connecteur,
+        # sections clés présentes (inconnus avec extrait, cas à confirmer).
+        import types
+        from .rapport import RAPPORT_FILE, generate as rapport_generate
+        r_mails = [
+            RawMail("Macrium Reflect Backup - SRV-R", "b@test.local", now,
+                    "Computer: SRV-R\nBackup completed successfully",
+                    "Backups/Macrium", "macrium"),
+            RawMail("Bulletin mensuel du fournisseur", "info@news.local",
+                    now, "Promotion sur les licences.",
+                    "Backups/Macrium", "macrium"),
+            RawMail("vzdump backup status (h1.local): backup failed",
+                    "pve@test.local", now, "TASK ERROR: job failed",
+                    "Sauvegardes/Client PBS", "auto", client="Client PBS"),
+        ]
+        r_cfg = {**cfg,
+                 "exchange": {"method": "outlook"}, "outlook": {"store": ""},
+                 "client_folders": [], "folders": {"macrium": ["B/M"]}}
+        fake_fetch = types.SimpleNamespace(
+            fetch=lambda c, p: (r_mails, ["[macrium] B/M : 1 courriel(s) "
+                                          "illisible(s) ignoré(s)"]))
+        r_path = rapport_generate(r_cfg, None, fake_fetch,
+                                  autotest_result=(0, 1, []))
+        r_text = open(r_path, encoding="utf-8").read()
+        check("Rapport : fichier généré (commande rapport)",
+              r_path.endswith(RAPPORT_FILE) and os.path.exists(r_path))
+        check("Rapport : courriel non reconnu listé avec extrait",
+              "NON RECONNUS (1)" in r_text
+              and "Bulletin mensuel du fournisseur" in r_text
+              and "Promotion sur les licences" in r_text)
+        check("Rapport : cas d'échec PBS à confirmer présent",
+              "[pbs]" in r_text and "backup failed" in r_text)
+        check("Rapport : sections environnement/autotest/collecte/journaux",
+              all(s in r_text for s in
+                  ("-- Environnement --", "-- Autotest --", "-- Collecte --",
+                   "ILLISIBLE", "-- Journal backup-monitor.log")))
 
         # Verrous des pièces jointes
         check("Verrou expéditeur (rejet)",
@@ -354,6 +441,22 @@ def _checks() -> list[tuple[str, bool, str]]:
               "http://" not in page and "https://" not in page)
         check("Tableau : pas de section Historique sans données",
               'id="historique"' not in page)
+        # La recherche du tableau couvre aussi l'extrait du contenu : un mot
+        # présent seulement dans le CORPS doit être dans data-texte.
+        row_attrs = re.findall(r'data-texte="([^"]*)"', page)
+        check("Tableau : recherche par mot-clé du contenu (data-texte)",
+              any("contenu quelconque" in a for a in row_attrs),
+              str(row_attrs)[:200])
+        check("Tableau : data-texte plié (sans accents) + requête pliée en JS",
+              any("message sans mots-cles" in a for a in row_attrs)
+              and "normalize('NFD')" in page,
+              str(row_attrs)[:200])
+        # Titre configurable (report.title), échappé
+        page_t = render({**cfg, "report": {**cfg["report"],
+                                           "title": "Sauvegardes <BG & Cie>"}},
+                        events, states)
+        check("Tableau : titre personnalisé (report.title) échappé",
+              "Sauvegardes &lt;BG &amp; Cie&gt;</h1>" in page_t)
 
     # Configuration d'exemple (si PyYAML est présent — toujours le cas
     # après install.bat ; peut manquer sur un poste de développement)

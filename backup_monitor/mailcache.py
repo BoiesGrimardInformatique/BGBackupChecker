@@ -143,5 +143,10 @@ class MailCache:
 
 def open_cache(cfg: dict) -> MailCache:
     conf = cfg.get("cache") or {}
-    return MailCache(cache_path(cfg), fingerprint(cfg),
-                     enabled=bool(conf.get("enabled", True))).load()
+    cache = MailCache(cache_path(cfg), fingerprint(cfg),
+                      enabled=bool(conf.get("enabled", True)))
+    if cache.enabled and conf.get("_refresh"):
+        # Option --no-cache : relecture complète forcée — le contenu existant
+        # est ignoré (pas chargé) mais le cache est reconstruit par save().
+        return cache
+    return cache.load()

@@ -8,21 +8,36 @@
   python -m backup_monitor diagnose       # bilan de calibrage (motifs, extraction)
   python -m backup_monitor suggest-jobs   # propose un bloc expected_jobs prêt
                                           # à coller, déduit des courriels vus
+  python -m backup_monitor find MOT [MOT…]  # ressortir les courriels
+                                          # contenant ces mots (sujet, corps,
+                                          # pièces jointes), avec extrait
+  python -m backup_monitor rapport        # rapport-diagnostic.txt : tout ce
+                                          # qu'il faut pour faire ajuster
+                                          # l'outil (autotest, comptes,
+                                          # inconnus, journaux)
   python -m backup_monitor folders        # liste les dossiers de la boîte
   python -m backup_monitor test           # teste la connexion
   python -m backup_monitor set-password   # mot de passe (modes ews/imap seulement)
+
+Options utiles : --days N (fenêtre d'analyse ponctuelle, sans toucher
+config.yaml) ; --open (ouvrir le tableau après l'analyse) ; --no-cache (tout
+relire, cache reconstruit) ; --fail-on-error avec --fail-on-unknown et/ou
+--fail-on-warning (codes de sortie pour RMM/Planificateur).
 """
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import time
 import traceback
 from datetime import datetime
 
+import unicodedata
+
 from . import (STATUS_ERROR, STATUS_MISSING, STATUS_UNKNOWN, STATUS_WARNING,
-               load_timezone)
+               fold_text, load_timezone)
 from . import history
 from . import notify
 from .parsers import DEFAULT_PATTERNS, analyze, job_states, suggest_jobs
@@ -99,10 +114,12 @@ def _autotest_guard(cfg, command: str) -> None:
         _log(cfg, f"AUTOTEST EN ÉCHEC ({failed}/{total}) — voir autotest.log")
 
 
-def _run_once(cfg, password, strict_unknown: bool = False) -> tuple[int, int]:
-    """Une analyse complète. Retourne (problèmes métier, dossiers illisibles) :
-    le premier compte les erreurs/manquants (+ inconnus si strict_unknown),
-    le second les dossiers ou courriels que la collecte a dû ignorer."""
+def _run_once(cfg, password, strict_unknown: bool = False,
+              strict_warning: bool = False) -> tuple[int, int, str]:
+    """Une analyse complète. Retourne (problèmes métier, dossiers illisibles,
+    chemin du tableau) : le premier compte les erreurs/manquants (+ inconnus
+    si strict_unknown, + avertissements si strict_warning), le deuxième les
+    dossiers ou courriels que la collecte a dû ignorer."""
     t0 = time.monotonic()
     mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
     events = analyze(cfg, mails)
@@ -134,8 +151,82 @@ def _run_once(cfg, password, strict_unknown: bool = False) -> tuple[int, int]:
     _log(cfg, summary
          + "".join(f" | ILLISIBLE : {e}" for e in fetch_errors)
          + "".join(f" | NOTIF : {w}" for w in notif_warnings))
-    business = errors + missing + (unknown if strict_unknown else 0)
-    return business, len(fetch_errors)
+    business = (errors + missing + (unknown if strict_unknown else 0)
+                + (warns if strict_warning else 0))
+    return business, len(fetch_errors), out
+
+
+def _fold_map(text: str) -> tuple[str, list[int]]:
+    """Texte plié (minuscules sans accents) + correspondance vers les indices
+    du texte original — pour retrouver « échec » via « echec » tout en
+    affichant l'extrait original avec ses accents."""
+    chars: list[str] = []
+    idx: list[int] = []
+    for i, ch in enumerate(text):
+        for c in unicodedata.normalize("NFD", ch):
+            if not unicodedata.combining(c):
+                chars.append(c.lower())
+                idx.append(i)
+    return "".join(chars), idx
+
+
+def _context_excerpt(text: str, term: str, width: int = 110) -> str:
+    """Extrait du texte autour de la première occurrence de `term`
+    (insensible à la casse et aux accents), espaces normalisés — pour situer
+    le mot-clé sans imprimer tout le corps."""
+    folded, idx = _fold_map(text)
+    i = folded.find(fold_text(term))
+    if i < 0 or not idx:
+        return ""
+    start = idx[max(0, i - width // 2)]
+    end = idx[min(len(idx) - 1, i + width // 2 + len(term))] + 1
+    return re.sub(r"\s+", " ", text[start:end]).strip()
+
+
+def _find(cfg, password, terms: list[str]) -> None:
+    """Ressort les courriels de la fenêtre d'analyse contenant TOUS les
+    mots-clés donnés (insensible à la casse et aux accents) — dans le sujet,
+    le corps, le texte des pièces jointes, le dossier, le client ou
+    l'expéditeur — avec un extrait autour du premier mot.
+    « find VSS "Comptable Plus" » cible un mot chez un client ; --days 60
+    élargit la fenêtre."""
+    mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
+    for err in fetch_errors:
+        print(f"AVERTISSEMENT — dossier illisible : {err}", file=sys.stderr)
+    lows = [fold_text(t) for t in terms]
+    hits = []
+    for m in sorted(mails, key=lambda m: m.received, reverse=True):
+        hay = fold_text(f"{m.subject}\n{m.body}\n{m.attachments_text}\n"
+                        f"{m.folder}\n{m.client}\n{m.sender}")
+        if all(t in hay for t in lows):
+            hits.append(m)
+    quoted = ", ".join(f"« {t} »" for t in terms)
+    if not hits:
+        print(f"Aucun courriel ne contient {quoted} dans la fenêtre de "
+              f"{cfg['analysis']['days_back']} jours "
+              "(élargir au besoin avec --days N).")
+        return
+    print(f"{len(hits)} courriel(s) contenant {quoted} :\n")
+    for m in hits[:100]:
+        print(f"{m.received:%Y-%m-%d %Hh%M}  [{m.folder}]  {m.subject}")
+        ctx = (_context_excerpt(m.body, terms[0])
+               or _context_excerpt(m.attachments_text, terms[0]))
+        if ctx:
+            print(f"    … {ctx} …")
+    if len(hits) > 100:
+        print(f"\n… et {len(hits) - 100} autre(s) plus ancien(s) — "
+              "préciser avec un 2e mot-clé.")
+
+
+def _open_report(path: str) -> None:
+    """Ouvre le tableau dans le navigateur par défaut (option --open) — un
+    échec d'ouverture ne doit jamais faire échouer l'analyse elle-même."""
+    try:
+        import webbrowser
+        webbrowser.open(path)
+    except Exception as exc:
+        print(f"AVERTISSEMENT — ouverture du tableau impossible : {exc}",
+              file=sys.stderr)
 
 
 def _diagnose(cfg, password) -> None:
@@ -219,18 +310,42 @@ def main() -> None:
                                      description=__doc__)
     parser.add_argument("command", nargs="?", default="run",
                         choices=["run", "setup", "diagnose", "suggest-jobs",
-                                 "selftest", "set-password", "folders",
-                                 "test"])
+                                 "find", "rapport", "selftest",
+                                 "set-password", "folders", "test"])
+    parser.add_argument("terms", nargs="*", metavar="MOT",
+                        help="mots-clés de la commande find (tous requis, "
+                             "insensible à la casse)")
     parser.add_argument("--config", default=None,
                         help="chemin de config.yaml (défaut : à côté du paquet)")
     parser.add_argument("--watch", type=int, metavar="SECONDES", default=0,
                         help="boucle continue, une analyse toutes les N secondes")
+    parser.add_argument("--days", type=int, metavar="N", default=0,
+                        help="fenêtre d'analyse pour CETTE exécution (jours), "
+                             "sans modifier config.yaml — pratique pour un "
+                             "diagnose ou un run ponctuel plus profond")
+    parser.add_argument("--open", action="store_true",
+                        help="ouvrir le tableau dans le navigateur après "
+                             "l'analyse (run)")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="ignorer le cache de collecte et tout relire "
+                             "depuis Outlook (le cache est reconstruit)")
     parser.add_argument("--fail-on-error", action="store_true",
                         help="code de sortie 1 si erreurs ou tâches manquantes")
     parser.add_argument("--fail-on-unknown", action="store_true",
                         help="avec --fail-on-error : les courriels non "
                              "reconnus comptent aussi comme un problème")
+    parser.add_argument("--fail-on-warning", action="store_true",
+                        help="avec --fail-on-error : les avertissements "
+                             "comptent aussi comme un problème")
     args = parser.parse_args()
+    if args.days < 0:
+        parser.error("--days doit être un nombre de jours ≥ 1")
+    if args.command == "find" and not args.terms:
+        parser.error("find : indiquer au moins un mot-clé — "
+                     "ex. « python -m backup_monitor find VSS »")
+    if args.command != "find" and args.terms:
+        parser.error(f"arguments inattendus : {' '.join(args.terms)} "
+                     "(les mots-clés ne servent qu'à la commande find)")
 
     if args.command == "selftest":
         from . import selftest
@@ -249,7 +364,16 @@ def main() -> None:
     from .config import load as load_config  # paresseux : requiert PyYAML
     cfg = load_config(cfg_path,
                       require_folders=(args.command in
-                                       ("run", "diagnose", "suggest-jobs")))
+                                       ("run", "diagnose", "suggest-jobs",
+                                        "find")))
+    if args.days:
+        # Fenêtre ponctuelle pour cette exécution seulement — config.yaml
+        # n'est pas modifié (s'applique à run, diagnose, suggest-jobs, test).
+        cfg["analysis"]["days_back"] = args.days
+    if args.no_cache:
+        # Relecture complète forcée : le cache est ignoré au chargement mais
+        # reconstruit en fin de collecte (voir mailcache.open_cache).
+        (cfg.setdefault("cache", {}))["_refresh"] = True
 
     # Phase de rodage : autotest journalisé à chaque utilisation (voir
     # _autotest_guard). La commande selftest est déjà l'autotest lui-même.
@@ -289,6 +413,18 @@ def main() -> None:
         _suggest_jobs(cfg, password)
         return
 
+    if args.command == "find":
+        _find(cfg, password, args.terms)
+        return
+
+    if args.command == "rapport":
+        from . import rapport
+        path = rapport.generate(cfg, password, _fetcher(cfg))
+        print(f"Rapport écrit : {path}")
+        print("RELIRE le fichier avant de le transmettre (noms de clients, "
+              "extraits de courriels).")
+        return
+
     if args.command == "test":
         mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
         print(f"Connexion OK ({cfg['exchange']['method']}) — "
@@ -302,9 +438,14 @@ def main() -> None:
     # run
     if args.watch > 0:
         print(f"Mode continu : analyse toutes les {args.watch} s (Ctrl+C pour arrêter).")
+        first = True
         while True:
             try:
-                _run_once(cfg, password, args.fail_on_unknown)
+                _, _, out = _run_once(cfg, password, args.fail_on_unknown,
+                                      args.fail_on_warning)
+                if first and args.open:
+                    _open_report(out)
+                first = False
             except KeyboardInterrupt:
                 raise
             except Exception:
@@ -319,11 +460,15 @@ def main() -> None:
                 return
     else:
         try:
-            business, partial = _run_once(cfg, password, args.fail_on_unknown)
+            business, partial, out = _run_once(cfg, password,
+                                               args.fail_on_unknown,
+                                               args.fail_on_warning)
         except Exception:
             _log(cfg, "ERREUR : " + traceback.format_exc(limit=2)
                  .strip().replace("\n", " | "))
             raise
+        if args.open:
+            _open_report(out)
         if args.fail_on_error:
             if business:
                 sys.exit(EXIT_BUSINESS)
