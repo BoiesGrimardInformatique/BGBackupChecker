@@ -45,8 +45,10 @@ DEFAULT_PATTERNS = {
             r"(?i)\buncontactable\b",
             # Macrium Image Guardian : opération bloquée sur un fichier de
             # sauvegarde — la protection a fonctionné, mais un processus
-            # non autorisé y a touché : à regarder.
+            # non autorisé y a touché : à regarder. Texte documenté :
+            # « Blocked unauthorised process (x.exe) accessing file (…) ».
             r"(?i)blocked file operation",
+            r"(?i)blocked unauthori[sz]ed process",
         ],
         "success": [
             r"(?i)completed successfully", r"(?i)backup completed",
@@ -78,28 +80,34 @@ DEFAULT_PATTERNS = {
             # frontière entre « 1 » et « 0 », donc « 10 erreurs » ne peut pas
             # passer pour « 0 erreurs » (et réciproquement).
             r"(?i)\b[1-9]\d*\s*(?:erreurs?|errors?)\b",
-            # Récapitulatif français de la console : « * Erreurs: 3 * » ;
-            # et sujet « … - Notification d'erreur - Retrospect ».
-            r"(?i)erreurs?\s*[:=]\s*[1-9]",
+            # Récapitulatif de la console (FR/EN) : « * Erreurs: 3 * » ;
+            # sujets « … - Notification d'erreur - Retrospect » et son
+            # équivalent anglais documenté « … - Error Notification - … ».
+            r"(?i)(?:erreurs?|errors?)\s*[:=]\s*[1-9]",
             r"(?i)notification d'erreur",
+            r"(?i)error notification",
         ],
         "warning": [r"(?i)with warnings",
-                    # « * Avertissements: 4 * » (récapitulatif français) —
+                    # « * Avertissements: 4 * » (récapitulatif FR/EN) —
                     # évalué APRÈS les erreurs : « Erreurs: 3, Avert.: 4 »
                     # reste une erreur.
                     r"(?i)avertissements?\s*[:=]\s*[1-9]",
+                    r"(?i)warnings?\s*[:=]\s*[1-9]",
                     r"(?i)avertissement",
                     # Digest quotidien « Retrospect : état pour <date> » :
                     # une sauvegarde interrompue par l'opérateur mérite un
-                    # coup d'œil, pas un vert silencieux.
-                    r"(?i)interrompues? par l'op[ée]rateur\s*:\s*[1-9]"],
+                    # coup d'œil, pas un vert silencieux. Sujet anglais
+                    # documenté : « Execution stopped by operator - … ».
+                    r"(?i)interrompues? par l'op[ée]rateur\s*:\s*[1-9]",
+                    r"(?i)stopped by operator"],
         "success": [
             r"(?i)completed successfully", r"(?i)terminé(e)? avec succès",
             r"(?i)normal execution", r"(?i)exécution normale",
             r"(?i)\b0\s*(?:erreurs?|errors?)\b",
-            # Récapitulatif de la console (« * Erreurs : 0 * ») — évalué
-            # après failure/warning, donc « Erreurs : 3 » reste une erreur.
-            r"(?i)erreurs?\s*[:=]\s*0\b",
+            # Récapitulatif de la console FR/EN (« * Erreurs : 0 * ») —
+            # évalué après failure/warning : « Erreurs : 3 » reste une
+            # erreur, « Warnings: 2 » un avertissement.
+            r"(?i)(?:erreurs?|errors?)\s*[:=]\s*0\b",
         ],
         "extract": {
             # « \bfrom\s+ » ancré ; l'ancien « de (…) » capturait n'importe
@@ -119,10 +127,11 @@ DEFAULT_PATTERNS = {
             "client": [r"(?i)^\s*(?:(?:re|tr|fwd?)\s*:\s*)*proactive\s*-\s*"
                        r"remote\s*-\s*(.+?)\s*-\s*"
                        r"(?:\d+\s*(?:erreurs?|errors?)"
-                       r"(?:\s*,\s*\d+\s*avertissements?)?"
+                       r"(?:\s*,\s*\d+\s*(?:avertissements?|warnings?))?"
                        # « - Notification - Retrospect » (console) existe
-                       # aussi sans « d'erreur ».
-                       r"|notification(?:\s+d'erreur)?)"
+                       # aussi sans « d'erreur » ; forme anglaise
+                       # documentée « - Error Notification - ».
+                       r"|(?:error\s+)?notification(?:\s+d'erreur)?)"
                        r"(?:\s*-\s*retrospect)?\s*$",
                        r"(?i)^\s*(?:(?:re|tr|fwd?)\s*:\s*)*proactive\s*-\s*"
                        r"remote\s*-\s*(.+?)\s*-\s*\d+\s*"

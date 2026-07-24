@@ -461,6 +461,52 @@ def _checks() -> list[tuple[str, bool, str]]:
               and "-519" in notif.problem,
               f"{notif.status}/{notif.machine}/{notif.problem[:60]}")
 
+        # Formes ANGLAISES documentées (docs.retrospect.com) : « N errors,
+        # M warnings », « Error Notification », « Execution stopped by
+        # operator », récapitulatif « Errors: 0 » ; et texte documenté du
+        # blocage Image Guardian (« Blocked unauthorised process »).
+        en_mails = [
+            RawMail("ProActive - Remote - Acme Corp - 2 errors, 1 warnings "
+                    "- Retrospect", "r@t.local", now - timedelta(minutes=1),
+                    "* Errors: 2 * Warnings: 1 *", "Backups/Retrospect",
+                    "retrospect"),
+            RawMail("ProActive - Remote - Acme Corp - Error Notification - "
+                    "Retrospect", "r@t.local", now - timedelta(minutes=2),
+                    "Script: ProActive - Remote - Acme Corp",
+                    "Backups/Retrospect", "retrospect"),
+            RawMail("Execution stopped by operator - Retrospect",
+                    "r@t.local", now - timedelta(minutes=3),
+                    "Script stopped by operator", "Backups/Retrospect",
+                    "retrospect"),
+            RawMail("ProActive - Remote - Acme Corp - Notification - "
+                    "Retrospect", "r@t.local", now - timedelta(minutes=4),
+                    "Backup report * Errors: 0 * Duration: 00:12:34",
+                    "Backups/Retrospect", "retrospect"),
+            RawMail("Macrium Image Guardian - Event - SRV1", "m@t.local",
+                    now - timedelta(minutes=5),
+                    "Blocked unauthorised process (evil.exe) accessing "
+                    "file (D:\\Backups\\img.mrimg)", "Backups/Macrium",
+                    "auto"),
+        ]
+        en = analyze({**cfg, "clients": []}, en_mails)
+        check("Retrospect EN : « 2 errors, 1 warnings » = erreur, client "
+              "extrait du sujet",
+              en[0].status == STATUS_ERROR and en[0].client == "Acme Corp",
+              f"{en[0].status}/{en[0].client}")
+        check("Retrospect EN : « Error Notification » = erreur",
+              en[1].status == STATUS_ERROR, en[1].status)
+        check("Retrospect EN : « Execution stopped by operator » = "
+              "avertissement",
+              en[2].status == STATUS_WARNING, en[2].status)
+        check("Retrospect EN : console « Errors: 0 » = succès, client "
+              "extrait aussi sans « d'erreur »",
+              en[3].status == STATUS_SUCCESS and en[3].client == "Acme Corp",
+              f"{en[3].status}/{en[3].client}")
+        check("Image Guardian : « Blocked unauthorised process » (texte "
+              "documenté) = avertissement",
+              en[4].product == "macrium" and en[4].status == STATUS_WARNING,
+              f"{en[4].product}/{en[4].status}")
+
         # Section « Problèmes en cours » : triage sans rien déplier —
         # client, tâche, depuis quand (historique), détail du problème.
         prob_hist = {"taches": {
