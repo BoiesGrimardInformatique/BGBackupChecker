@@ -283,6 +283,23 @@ def _checks() -> list[tuple[str, bool, str]]:
                     "Disk Space Low Disk space on repository "
                     "\\\\Sauvegarde\\Historiques\\MacRium has fallen below "
                     "50 GB", "Sauvegardes/Hogue", "auto", client="Hogue"),
+            # Alertes informatives Backup Exec (rapport diagnostic réel) :
+            # catégorie « … Information » = sévérité minimale, pas un échec.
+            RawMail('Backup Exec Alert: General Information '
+                    '(Server: "SEA-MAIL")', "b@test.local",
+                    now - timedelta(minutes=6),
+                    '(Server: "SEA-MAIL") The following backup jobs are '
+                    "using the Forever Incremental backup method.",
+                    "Sauvegardes/Seanautic Marine", "auto",
+                    client="Seanautic Marine"),
+            RawMail('Backup Exec Alert: Database Maintenance Information '
+                    '(Server: "SEA-MAIL") (Job: "Database Maintenance")',
+                    "b@test.local", now - timedelta(minutes=7),
+                    '(Server: "SEA-MAIL") (Job: "Database Maintenance") '
+                    "Maintenance of application databases on server "
+                    "SEA-MAIL\\BkupExec has started.",
+                    "Sauvegardes/Seanautic Marine", "auto",
+                    client="Seanautic Marine"),
         ]
         rev = {e.subject: e for e in analyze(cfg, reels)}
         cob = rev["Backup Summum (SERVEUR-PC)"]
@@ -313,6 +330,19 @@ def _checks() -> list[tuple[str, bool, str]]:
         check("Site Manager : Disk Space Low = avertissement Macrium",
               sml.product == "macrium" and sml.status == STATUS_WARNING,
               f"{sml.product}/{sml.status}")
+        gen = rev['Backup Exec Alert: General Information '
+                  '(Server: "SEA-MAIL")']
+        check("Backup Exec : alerte « General Information » = succès "
+              "informatif (plus « inconnu »)",
+              gen.product == "backupexec" and gen.status == STATUS_SUCCESS
+              and gen.machine == "SEA-MAIL", f"{gen.product}/{gen.status}")
+        dbm = rev['Backup Exec Alert: Database Maintenance Information '
+                  '(Server: "SEA-MAIL") (Job: "Database Maintenance")']
+        check("Backup Exec : « Database Maintenance Information » = succès, "
+              "tâche extraite",
+              dbm.product == "backupexec" and dbm.status == STATUS_SUCCESS
+              and dbm.job == "Database Maintenance",
+              f"{dbm.product}/{dbm.status}/{dbm.job}")
 
         # Nomenclature ProActive complète (capture réelle) : suffixes
         # « , M avertissements - Retrospect » et « Notification d'erreur »,

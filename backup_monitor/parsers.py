@@ -172,7 +172,12 @@ DEFAULT_PATTERNS = {
                     r"(?i)\bjob failed\b"],
         "warning": [r"(?i)with exceptions",
                     r"(?i)job completion status\s*:\s*cancell?ed"],
-        "success": [r"(?i)job completion status\s*:\s*success"],
+        # Les catégories « … Information » (General Information, Database
+        # Maintenance Information, observées en réel) sont la sévérité la
+        # plus basse de Backup Exec : purement informatives, jamais un
+        # échec — on suit sa taxonomie, comme le « 0 erreurs » Retrospect.
+        "success": [r"(?i)job completion status\s*:\s*success",
+                    r"(?i)backup exec alert:\s*[a-z ]*\binformation\b"],
         "extract": {
             "machine": [r"(?i)server:\s*\"\\{0,2}([A-Za-z0-9._-]+)"],
             "job": [r"(?i)job:\s*\"([^\"]+)"],
