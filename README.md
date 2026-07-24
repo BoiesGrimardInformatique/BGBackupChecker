@@ -128,7 +128,7 @@ transmet les arguments) :
 
 | Option | Effet |
 |---|---|
-| `--days N` | Fenêtre d'analyse ponctuelle (jours) pour CETTE exécution, sans modifier `config.yaml` — pratique pour un `diagnose`, un `find` ou un `run` plus profond |
+| `--days N` | Fenêtre d'analyse ponctuelle (jours) pour CETTE exécution, sans modifier `config.yaml` — et `--days 0` = **tout le dossier, sans limite de date** |
 | `--open` | Ouvre le tableau dans le navigateur après l'analyse (`run`) |
 | `--no-cache` | Ignore le cache de collecte et relit tout depuis Outlook (le cache est reconstruit) — utile si un contenu semble périmé |
 | `--fail-on-warning` | Avec `--fail-on-error` : les avertissements comptent aussi comme un problème (code 2) |
@@ -333,6 +333,30 @@ Pour exécuter l'outil ailleurs que sur le poste (ex. un serveur Linux) :
 `method: ews` (ou `imap`), `exchange.email`, `exchange.username`, `ews_url`.
 Mot de passe : `python -m backup_monitor set-password` (trousseau système).
 Sous Linux, `install.sh` et `systemd/installer-timer.sh` couvrent ce scénario.
+
+## Ne rien rater : profondeur d'analyse et affichage
+
+Quatre garanties pour qu'un problème ne passe jamais sous le radar :
+
+- **Sous-dossiers inclus** : chaque dossier choisi (`folders.*`) est lu avec
+  **tous ses sous-dossiers** (`analysis.include_subfolders`, actif par
+  défaut) — un tri par machine ou par année ne cache rien. (Le mode
+  `client_folders` était déjà récursif.)
+- **Fenêtre au choix, jusqu'à l'illimité** : `analysis.days_back: 0` (ou
+  ponctuellement `lancer.bat run --days 0`) analyse **tout le dossier, sans
+  limite de date**. Premier passage long sur une grosse boîte ; le cache
+  absorbe les suivants.
+- **Lecture robuste au tri** : la collecte Outlook ne s'arrête plus au
+  « premier courriel trop vieux » — cette coupe dépendait du tri COM, qui
+  peut échouer silencieusement et faire paraître un dossier **vide sans
+  aucune erreur**. Le filtrage par date se fait côté MAPI (`Restrict`) avec
+  repli sur un parcours complet du dossier.
+- **Les problèmes ne sont jamais tronqués à l'affichage** : une erreur ou un
+  avertissement plus ancien que les `report.max_rows` courriels les plus
+  récents reste listé ; et sans `expected_jobs`, les tuiles et la vue par
+  client reflètent le **dernier état connu de chaque tâche observée** — un
+  échec vieux de 3 jours sans courriel plus récent reste compté (l'ancienne
+  base « dernières 24 h » pouvait le masquer).
 
 ## Robustesse et journal
 

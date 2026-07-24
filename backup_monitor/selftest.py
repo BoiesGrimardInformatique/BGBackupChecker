@@ -170,6 +170,43 @@ def _checks() -> list[tuple[str, bool, str]]:
               .machine == "SRV-X",
               fiab_ev["Macrium Reflect Backup - extraction"].machine)
 
+        # Couverture d'affichage : un problème ancien ne doit JAMAIS être
+        # invisible — ni tronqué par max_rows, ni masqué par une base
+        # « dernières 24 h » quand aucune expected_job n'est configurée.
+        cov_cfg = {**cfg, "expected_jobs": [], "clients": [],
+                   "report": {"output": "cov.html", "refresh_seconds": 300,
+                              "max_rows": 2}}
+        cov_mails = [
+            RawMail("Macrium OK récent A", "b@test.local",
+                    now - timedelta(hours=1),
+                    "Computer: SRV-A\nBackup completed successfully",
+                    "Sauvegardes/Client Sain", "auto", client="Client Sain"),
+            RawMail("Macrium OK récent B", "b@test.local",
+                    now - timedelta(hours=2),
+                    "Computer: SRV-B\nBackup completed successfully",
+                    "Sauvegardes/Client Sain", "auto", client="Client Sain"),
+            RawMail("Macrium Reflect - Backup Failure vieille de 3 jours",
+                    "b@test.local", now - timedelta(days=3),
+                    "Computer: SRV-RUSCIO\nBackup aborted",
+                    "Sauvegardes/Ruscio Studio", "auto",
+                    client="Ruscio Studio"),
+            RawMail("Macrium OK ancien C", "b@test.local",
+                    now - timedelta(days=4),
+                    "Computer: SRV-C\nBackup completed successfully",
+                    "Sauvegardes/Client Sain", "auto", client="Client Sain"),
+        ]
+        cov_ev = analyze(cov_cfg, cov_mails)
+        cov_page = render(cov_cfg, cov_ev, [], None)
+        check("Affichage : une erreur plus vieille que max_rows reste listée",
+              "Backup Failure vieille de 3 jours" in cov_page
+              and "OK ancien C" not in cov_page)
+        check("Affichage : sans expected_jobs, un échec de 3 jours compte "
+              "dans les tuiles (dernier état par tâche, pas 24 h)",
+              'class="tile alert"' in cov_page)
+        check("Affichage : le client en échec ressort dans la vue par client",
+              "Ruscio Studio" in cov_page
+              and 'data-client="Ruscio Studio"' in cov_page)
+
         # Nomenclature Retrospect « ProActive - Remote - <Compagnie> -
         # N erreurs » : client extrait du sujet, statut selon le compte.
         pa_mails = [
