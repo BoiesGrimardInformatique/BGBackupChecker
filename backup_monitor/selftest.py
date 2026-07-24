@@ -170,6 +170,46 @@ def _checks() -> list[tuple[str, bool, str]]:
               .machine == "SRV-X",
               fiab_ev["Macrium Reflect Backup - extraction"].machine)
 
+        # Nomenclature Retrospect « ProActive - Remote - <Compagnie> -
+        # N erreurs » : client extrait du sujet, statut selon le compte.
+        pa_mails = [
+            RawMail("ProActive - Remote - Clinique Vertika - 0 erreurs",
+                    "retro@test.local", now, "", "Backups/Retrospect",
+                    "retrospect"),
+            RawMail("RE: ProActive - Remote - Boies-Grimard Informatique - "
+                    "3 erreurs", "retro@test.local", now, "",
+                    "Backups/Retrospect", "retrospect"),
+            RawMail("ProActive - Remote - Compagnie Auto - 10 erreurs",
+                    "retro@test.local", now, "", "Sauvegardes/Divers",
+                    "auto"),
+        ]
+        pa_ev = {e.subject: e for e in analyze(cfg, pa_mails)}
+        ok0 = pa_ev["ProActive - Remote - Clinique Vertika - 0 erreurs"]
+        check("ProActive : client extrait du sujet",
+              ok0.client == "Clinique Vertika", ok0.client)
+        check("ProActive : « 0 erreurs » = succès",
+              ok0.status == STATUS_SUCCESS, ok0.status)
+        ko3 = pa_ev["RE: ProActive - Remote - Boies-Grimard Informatique - "
+                    "3 erreurs"]
+        check("ProActive : « 3 erreurs » = erreur, RE: toléré, "
+              "trait d'union du nom conservé",
+              ko3.status == STATUS_ERROR
+              and ko3.client == "Boies-Grimard Informatique",
+              f"{ko3.status} / {ko3.client}")
+        ko10 = pa_ev["ProActive - Remote - Compagnie Auto - 10 erreurs"]
+        check("ProActive : « 10 erreurs » ne passe pas pour « 0 erreurs », "
+              "produit Retrospect détecté en mode auto",
+              ko10.status == STATUS_ERROR and ko10.product == "retrospect"
+              and ko10.client == "Compagnie Auto",
+              f"{ko10.status} / {ko10.product} / {ko10.client}")
+        pa_dossier = analyze(cfg, [RawMail(
+            "ProActive - Remote - Autre Nom - 0 erreurs", "r@test.local",
+            now, "", "Sauvegardes/Dossier Client", "auto",
+            client="Dossier Client")])
+        check("ProActive : le client du dossier reste prioritaire",
+              pa_dossier[0].client == "Dossier Client",
+              pa_dossier[0].client)
+
         # Motifs précompilés : une regex utilisateur invalide est ignorée
         # sans planter (les motifs valides continuent de classer), et une
         # section parsers différente invalide bien le cache de compilation.

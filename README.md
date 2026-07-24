@@ -216,7 +216,15 @@ clients:
 ```
 
 Les motifs sont testés sur la machine extraite, le sujet et le nom de tâche de
-chaque courriel. Le tableau affiche alors : une **vue par client** (pire état
+chaque courriel.
+
+**Nomenclature Retrospect « ProActive »** : les sujets de la forme
+`ProActive - Remote - <Compagnie> - N erreurs` sont reconnus nativement —
+le **client** est le nom de compagnie extrait du sujet (traits d'union
+conservés, préfixes RE:/TR: tolérés) et le **compte d'erreurs donne le
+statut** (`0 erreurs` = succès, `1` et plus = erreur). Aucun réglage requis ;
+priorité d'attribution du client : dossier (`client_folders`) > sujet >
+section `clients`. Ajustable au besoin via `parsers.retrospect.extract.client`. Le tableau affiche alors : une **vue par client** (pire état
 + comptes d'erreurs/manquants/avertissements/succès, triée du client le plus
 en difficulté au plus sain, cliquable pour filtrer), une **colonne Client**
 dans les deux tableaux, et un **filtre par client**. Les tâches attendues
