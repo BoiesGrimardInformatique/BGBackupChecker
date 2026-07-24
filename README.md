@@ -365,6 +365,26 @@ Quatre garanties pour qu'un problème ne passe jamais sous le radar :
   échec vieux de 3 jours sans courriel plus récent reste compté (l'ancienne
   base « dernières 24 h » pouvait le masquer).
 
+### Préchargement : `lancer.bat preload`
+
+`preload` collecte **l'entièreté des dossiers surveillés** (sans limite de
+date ; `--days N` pour borner), toujours en lecture seule, sans générer de
+tableau ni de notification. En un passage :
+
+- le **cache du poste** est rempli — la première analyse complète est payée
+  une seule fois, les collectes suivantes ne lisent que les nouveaux
+  courriels ;
+- l'**historique** (`historique.json`) est consigné en profondeur (bande des
+  jours, taux de réussite) sur `history.keep_days` jours (90 par défaut —
+  augmenter pour voir plus loin) ; cette profondeur **survit** aux runs
+  fenêtrés suivants.
+
+Pour que l'analyse courante garde elle aussi toute la profondeur (courriels
+listés, états), mettre ensuite `analysis.days_back: 0` dans `config.yaml` :
+le cache rempli par `preload` rend ces runs complets rapides. Avec une
+fenêtre courte (ex. 14 jours), le cache revient à la fenêtre au run suivant —
+seul l'historique conserve alors le passé.
+
 ## Robustesse et journal
 
 - **Collecte tolérante aux pannes** : un dossier illisible (renommé, déplacé,

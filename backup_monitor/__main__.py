@@ -305,12 +305,70 @@ def _suggest_jobs(cfg, password) -> None:
             print(f"    client: {q(s['client'])}")
 
 
+def _preload_bilan(mails, events) -> list[str]:
+    """Lignes du bilan de préchargement (pur, testable hors connexion)."""
+    lines: list[str] = []
+    par_dossier: dict[str, int] = {}
+    for m in mails:
+        par_dossier[m.folder] = par_dossier.get(m.folder, 0) + 1
+    for folder in sorted(par_dossier):
+        lines.append(f"  {par_dossier[folder]:>6}  {folder}")
+    if events:
+        oldest = min(e.received for e in events)
+        newest = max(e.received for e in events)
+        lines.append(f"Période couverte : du {oldest:%Y-%m-%d} "
+                     f"au {newest:%Y-%m-%d}.")
+        for status, label in ((STATUS_ERROR, "erreur"),
+                              (STATUS_WARNING, "avertissement"),
+                              ("succes", "succès"),
+                              (STATUS_UNKNOWN, "inconnu")):
+            n = sum(1 for e in events if e.status == status)
+            if n:
+                lines.append(f"  {label:<13}: {n}")
+    return lines
+
+
+def _preload(cfg, password) -> int:
+    """Préchargement : collecte l'ENTIÈRETÉ des dossiers surveillés (sans
+    limite de date, sauf --days), remplit le cache du poste et consigne la
+    profondeur dans historique.json — lecture seule, ne génère ni tableau,
+    ni notification. L'historique survit aux runs fenêtrés suivants (taillé
+    par history.keep_days) ; le cache, lui, revient à la fenêtre d'analyse
+    au prochain run — garder analysis.days_back: 0 pour qu'il reste plein."""
+    start = time.time()
+    mails, fetch_errors = _fetcher(cfg).fetch(cfg, password)
+    duration = time.time() - start
+    for err in fetch_errors:
+        print(f"AVERTISSEMENT — dossier illisible : {err}", file=sys.stderr)
+    events = analyze(cfg, mails)
+    states = job_states(cfg, events)
+    now = datetime.now(load_timezone(cfg))
+    hist = history.update(cfg, states, events, now)
+    keep_days = int((cfg.get("history") or {}).get("keep_days", 90))
+    print(f"{len(mails)} courriel(s) préchargés en {duration:.1f} s :")
+    for line in _preload_bilan(mails, events):
+        print(line)
+    print(f"Historique : {len(hist.get('taches') or {})} tâche(s) suivie(s), "
+          f"profondeur conservée {keep_days} jour(s) (history.keep_days).")
+    print("Cache du poste rempli — les prochaines collectes ne reliront que "
+          "les nouveaux courriels.")
+    print("NOTE : le cache ne conserve que les courriels de la fenêtre "
+          "d'analyse du DERNIER run. Pour que l'outil garde toute la "
+          "profondeur en continu, mettre analysis.days_back: 0 dans "
+          "config.yaml ; l'historique, lui, reste acquis.")
+    _log(cfg, f"PRELOAD {len(mails)} courriels, "
+              f"{len(hist.get('taches') or {})} tâche(s) dans l'historique "
+              f"[{duration:.1f} s]"
+              + "".join(f" | ILLISIBLE : {e}" for e in fetch_errors))
+    return EXIT_PARTIAL if fetch_errors else 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="backup_monitor",
                                      description=__doc__)
     parser.add_argument("command", nargs="?", default="run",
                         choices=["run", "setup", "diagnose", "suggest-jobs",
-                                 "find", "rapport", "selftest",
+                                 "find", "rapport", "preload", "selftest",
                                  "set-password", "folders", "test"])
     parser.add_argument("terms", nargs="*", metavar="MOT",
                         help="mots-clés de la commande find (tous requis, "
@@ -365,7 +423,10 @@ def main() -> None:
     cfg = load_config(cfg_path,
                       require_folders=(args.command in
                                        ("run", "diagnose", "suggest-jobs",
-                                        "find")))
+                                        "find", "preload")))
+    if args.command == "preload" and args.days is None:
+        # Préchargement : tout le dossier par défaut ; --days N le borne.
+        cfg["analysis"]["days_back"] = 0
     if args.days is not None:
         # Fenêtre ponctuelle pour cette exécution seulement — config.yaml
         # n'est pas modifié (s'applique à run, diagnose, suggest-jobs, find,
@@ -417,6 +478,9 @@ def main() -> None:
     if args.command == "find":
         _find(cfg, password, args.terms)
         return
+
+    if args.command == "preload":
+        sys.exit(_preload(cfg, password))
 
     if args.command == "rapport":
         from . import rapport

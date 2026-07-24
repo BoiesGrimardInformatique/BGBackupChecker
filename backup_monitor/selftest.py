@@ -707,6 +707,26 @@ def _checks() -> list[tuple[str, bool, str]]:
         check("find : « echec » trouve « Échec », extrait original conservé",
               "Échec" in ctx2, ctx2)
 
+        # Commande preload : bilan pur (comptes par dossier, période, états).
+        from .__main__ import _preload_bilan
+        pl_mails = [
+            RawMail("A Macrium Reflect - Backup Success", "a@t.l",
+                    now - timedelta(days=400), "Success :)",
+                    "Sauvegardes/Alpha", "macrium"),
+            RawMail("B Macrium Reflect - Backup Failed", "b@t.l",
+                    now, "Failed :(", "Sauvegardes/Beta", "macrium"),
+            RawMail("C Macrium Reflect - Backup Success", "c@t.l",
+                    now, "Success :)", "Sauvegardes/Beta", "macrium"),
+        ]
+        bilan = "\n".join(_preload_bilan(pl_mails, analyze(cfg, pl_mails)))
+        check("preload : bilan — comptes par dossier, période profonde, "
+              "états",
+              "     2  Sauvegardes/Beta" in bilan
+              and "     1  Sauvegardes/Alpha" in bilan
+              and f"du {(now - timedelta(days=400)):%Y-%m-%d}" in bilan
+              and "erreur       : 1" in bilan
+              and "succès       : 2" in bilan, bilan)
+
         # Rapport diagnostic : généré hors-ligne avec un faux connecteur,
         # sections clés présentes (inconnus avec extrait, cas à confirmer).
         import types
