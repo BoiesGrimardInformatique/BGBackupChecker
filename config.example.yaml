@@ -102,18 +102,18 @@ clients: []
 # Tâches de sauvegarde attendues — permet de détecter les backups MANQUANTS
 # (aucun courriel reçu dans la fenêtre attendue), pas seulement ceux en erreur.
 # "match" est une expression régulière testée sur sujet + machine + tâche.
-expected_jobs:
-  - name: "SRV-FICHIERS — Image Macrium quotidienne"
-    product: macrium
-    match: "SRV-FICHIERS"
-    every_hours: 24    # fréquence attendue
-    grace_hours: 6     # tolérance avant de déclarer « manquant »
-    # client: "Nom du client"   # optionnel — sinon déduit du dernier courriel
-  - name: "Retrospect — Sauvegarde postes"
-    product: retrospect
-    match: "Sauvegarde postes"
-    every_hours: 24
-    grace_hours: 6
+# NE PAS inventer de tâches : « lancer.bat suggest-jobs » imprime un bloc
+# prêt à coller, déduit de VOS courriels réels (noms, fréquences, clients).
+expected_jobs: []
+# Exemple (à adapter — une tâche d'exemple laissée telle quelle serait de
+# toute façon ignorée au chargement, avec un avertissement) :
+# expected_jobs:
+#   - name: "SRV-FICHIERS — Image Macrium quotidienne"
+#     product: macrium
+#     match: "SRV-FICHIERS"
+#     every_hours: 24    # fréquence attendue
+#     grace_hours: 6     # tolérance avant de déclarer « manquant »
+#     # client: "Nom du client"  # optionnel — sinon déduit du dernier courriel
 
 # Historique quotidien — le tableau ne montre que la fenêtre d'analyse
 # (days_back) ; l'historique mémorise en plus le PIRE état de CHAQUE JOUR par
